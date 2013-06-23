@@ -59,5 +59,8 @@
 #define EL_HTR_OFF (1)
 #define EL_HTR_ON  (2)
 
+// Hysteresis values for triac_too_hot signal
+#define TRIAC_LLIMIT (60)
+#define TRIAC_HLIMIT (70)
 
 #endif /* _BREW_ARDUINO_H_ */

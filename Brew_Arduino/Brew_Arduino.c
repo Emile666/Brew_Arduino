@@ -52,11 +52,10 @@ uint8_t  tmr_on_val    = 0;         // ON-timer value  for PWM to Time-Division 
 uint8_t  tmr_off_val   = 0;         // OFF-timer value for PWM to Time-Division signal
 uint8_t  triac_llimit  = 60;        // Hysteresis lower-limit for triac_too_hot signal
 uint8_t  triac_hlimit  = 70;	    // Hysteresis upper-limit for triac_too_hot signal
-uint8_t  triac_too_hot = 0;		    // 1 = TRIAC temperature (read by LM35) is too high
+uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
 uint16_t irq_cnt       = 0;         // interrupt counter
 
 ma lm35_ma;                 // struct for LM35 moving_average filter
-
 
 /*-----------------------------------------------------------------------------
   Purpose  : Convert a PWM signal into a time-division signal of 100 * 50 msec.
@@ -66,8 +65,8 @@ ma lm35_ma;                 // struct for LM35 moving_average filter
 			 system_mode is set to ELECTRICAL_HEATING.
   Variables: tmr_on_val : the ON-time value
              tmr_off_val: the OFF-time value
-			 htimer   : the ON-timer
-			 ltimer   : the OFF-timer
+			 htimer     : the ON-timer
+			 ltimer     : the OFF-timer
   Returns  : -
   ---------------------------------------------------------------------------*/
 void pwm_2_time(void)
@@ -157,41 +156,13 @@ ISR(TIMER2_COMPA_vect)
 	{   // call every 50 msec and only in case of ELECTRICAL HEATING
 		pwm_2_time();	
 	} // if
-	if (++irq_cnt == IRQ_CNT)
+	
+	if ((irq_cnt % IRQ_CNT) == 2)
 	{
 		PORTB ^= 0x20; // Toggle PB5 (SCK) with orange Arduino LED
-		irq_cnt = 0;
 	} // if
+	irq_cnt++; // irq_cnt counts to 0xffff and then starts at 0 again
 } // ISR()
-
-void i2c_scan(uint8_t ch)
-{
-    char    s[50]; // needed for printing to serial terminal
-	uint8_t x = 0;
-	int     i;     // Leave this as an int!
-    enum i2c_acks retv;
-	
-	retv = i2c_select_channel(ch);
-	if (ch == PCA9544_NOCH)
-		 sprintf(s,"I2C[-]: ");
-	else sprintf(s,"I2C[%1d]: ",ch-PCA9544_CH0);
-	xputs(s);
-	for (i = 0x00; i < 0xff; i+=2)
-	{
-		if (i2c_start(i) == I2C_ACK)
-		{
-			if ((ch == PCA9544_NOCH) || ((ch != PCA9544_NOCH) && (i != PCA9544)))
-			{
-				sprintf(s,"0x%0x ",i);
-				xputs(s);
-				x++;
-			}
-		} // if
-		i2c_stop();
-	} // for
-	if (!x) xputs("no devices detected");
-	xputs("\n");
-} // i2c_scan()
 
 void init_interrupt(void)
 {
@@ -229,21 +200,14 @@ int main(void)
 	// Initialize Serial Communication, See usart.h for BAUD
 	// F_CPU should be a Project Define (-DF_CPU=(xxxL)
 	usart_init(MYUBRR); // Initializes the serial communication
-	xputs("E-Brew v2.00 Brewing System!\nStarting i2c_scan()...\n");
-
-	i2c_scan(PCA9544_NOCH); // Start with main I2C channel
-	i2c_scan(PCA9544_CH0);  // PCA9544 channel 0
-	i2c_scan(PCA9544_CH1);  // PCA9544 channel 1
-	i2c_scan(PCA9544_CH2);  // PCA9544 channel 2
-	i2c_scan(PCA9544_CH3);  // PCA9544 channel 3
-	xputs("\nStarting rs232_command_handler()\n");
+	xputs("E-Brew System v2.00!\n");
     while(1)
     {
 		switch (rs232_command_handler()) // run command handler continuously
 		{
 			case ERR_CMD: xputs("Command Error\n"); break;
 			case ERR_NUM: xputs("Number Error\n");  break;
-			case ERR_I2C: xputs("I2C Error\n");     break;
+			case ERR_I2C: break; // do not print anything 
 			default     : break;
 		} // switch
     } // while()

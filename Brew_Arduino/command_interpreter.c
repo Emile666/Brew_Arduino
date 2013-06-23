@@ -4,12 +4,12 @@
  * Created: 22-4-2013 07:26:24
  *  Author: Emile
  */ 
-#include "command_interpreter.h"
+#include <string.h>
 #include <ctype.h>
 #include <util/atomic.h>
+#include "command_interpreter.h"
 #include "misc.h"
 #include "brew_arduino.h"
-#include <string.h>
 
 extern uint8_t    system_mode;       // from Brew_Arduino.c
 extern const char *ebrew_revision;   // ebrew CVS revision number
@@ -22,10 +22,44 @@ extern uint8_t    triac_hlimit;
 extern uint8_t    tmr_on_val;           // ON-timer  for PWM to Time-Division signal
 extern uint8_t    tmr_off_val;          // OFF-timer for PWM to Time-Division signal
 extern ma         lm35_ma;              // Moving Average filter for LM35 Temperature
+extern uint8_t    triac_too_hot;        // TRUE = triac too hot
 
 char    rs232_inbuf[USART_BUFLEN]; // buffer for RS232 commands
 uint8_t rs232_ptr = 0;             // index in RS232 buffer
 
+/*-----------------------------------------------------------------------------
+  Purpose  : Scan all devices on the I2C bus on all channels of the PCA9544
+  Variables: ch: the I2C channel number, 0 is the main channel
+  Returns  : -
+  ---------------------------------------------------------------------------*/
+void i2c_scan(uint8_t ch)
+{
+	char    s[50]; // needed for printing to serial terminal
+	uint8_t x = 0;
+	int     i;     // Leave this as an int!
+	enum i2c_acks retv;
+	
+	retv = i2c_select_channel(ch);
+	if (ch == PCA9544_NOCH)
+	sprintf(s,"I2C[-]: ");
+	else sprintf(s,"I2C[%1d]: ",ch-PCA9544_CH0);
+	xputs(s);
+	for (i = 0x00; i < 0xff; i+=2)
+	{
+		if (i2c_start(i) == I2C_ACK)
+		{
+			if ((ch == PCA9544_NOCH) || ((ch != PCA9544_NOCH) && (i != PCA9544)))
+			{
+				sprintf(s,"0x%0x ",i);
+				xputs(s);
+				x++;
+			}
+		} // if
+		i2c_stop();
+	} // for
+	if (!x) xputs("no devices detected");
+	xputs("\n");
+} // i2c_scan()
 
 /*-----------------------------------------------------------------------------
   Purpose  : Process PWM signal for all system-modes
@@ -179,6 +213,17 @@ uint8_t execute_rs232_command(char *s)
 							temp    = tmp2 * 10 / 93;
 							tmp2    = tmp2 - temp * 93 / 10;
 							frac_16 = (tmp2 * 1000 / 93); // (10/93)*100
+							ATOMIC_BLOCK(ATOMIC_FORCEON)
+							{
+								if (triac_too_hot)
+								{  // reset hysteresis if temp < lower limit
+								   triac_too_hot = (temp > TRIAC_LLIMIT);	
+								} // if
+								else 
+								{  // set hysteresis if temp > upper limit
+								   triac_too_hot = (temp > TRIAC_HLIMIT);
+								} // else
+							}							
 							sprintf(s2,"Lm35=%d.%02d\n",temp,frac_16);
 							break;
 					case 1: // VHLT
@@ -193,7 +238,7 @@ uint8_t execute_rs232_command(char *s)
 							temp = lm92_read(THLT, &frac_16, &err); // 0=THLT, 1=TMLT
 							if (err)
 							{
-								sprintf(s2,"Thlt=0.00 ");
+								sprintf(s2,"Thlt=0.00\n");
 								rval = ERR_I2C;
 							} // if
 							else sprintf(s2,"Thlt=%d.%04d\n",temp,(uint16_t)frac_16*625);
@@ -202,7 +247,7 @@ uint8_t execute_rs232_command(char *s)
 							temp = lm92_read(TMLT, &frac_16, &err); // 0=THLT, 1=TMLT
 							if (err)
 							{
-								sprintf(s2,"Tmlt=0.00 ");
+								sprintf(s2,"Tmlt=0.00\n");
 								rval = ERR_I2C;
 							} // if							
 							else sprintf(s2,"Tmlt=%d.%04d\n",temp,(uint16_t)frac_16*625);
@@ -270,8 +315,8 @@ uint8_t execute_rs232_command(char *s)
 				 if (num > 1) rval = ERR_NUM;
 				 else 
 				 {
-					 if (num == 0) PORTD &= ~PUMP;
-					 else          PORTD |=  PUMP;
+					 if (num == 0) PORTD &= ~(PUMP | PUMP_LED);
+					 else          PORTD |=  (PUMP | PUMP_LED);
 					 sprintf(s2,"ok%2d\n",rval);
 					 xputs(s2);
 				 }				 
