@@ -90,6 +90,9 @@
     <Compile Include="pwm.c">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="scheduler.c">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="spi.c">
       <SubType>compile</SubType>
     </Compile>

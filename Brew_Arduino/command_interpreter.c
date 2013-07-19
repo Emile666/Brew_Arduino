@@ -4,6 +4,9 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.3  2013/06/23 09:08:51  Emile
+// - Headers added to files
+//
 //
 //-----------------------------------------------------------------------------
 #include <string.h>
@@ -23,8 +26,10 @@ extern uint8_t    triac_llimit;
 extern uint8_t    triac_hlimit;
 extern uint8_t    tmr_on_val;           // ON-timer  for PWM to Time-Division signal
 extern uint8_t    tmr_off_val;          // OFF-timer for PWM to Time-Division signal
+
 extern ma         lm35_ma;              // Moving Average filter for LM35 Temperature
-extern uint8_t    triac_too_hot;        // TRUE = triac too hot
+extern int8_t     lm35_temp;            // LM35 Temperature in °C
+extern uint16_t   lm35_frac;            // LM35 Temperature fraction part in E-2 °C
 
 char    rs232_inbuf[USART_BUFLEN]; // buffer for RS232 commands
 uint8_t rs232_ptr = 0;             // index in RS232 buffer
@@ -120,7 +125,7 @@ void process_pwm_signal(uint8_t pwm)
 
 		case ELECTRICAL_HEATING: // Electrical heating
 		                     ATOMIC_BLOCK(ATOMIC_FORCEON)
-							 {  // set values for interrupt routine
+							 {  // set values for pwm_2_time() task
 								tmr_on_val  = pwm;
 								tmr_off_val = 100 - tmr_on_val;
 							 } 	// ATOMIC_BLOCK						 
@@ -132,17 +137,17 @@ void process_pwm_signal(uint8_t pwm)
 } // process_pwm_signal()
 
 /*-----------------------------------------------------------------------------
-  Purpose: Command handler for RS232 commands coming in via the USB port
+  Purpose  : Non-blocking RS232 command-handler via the USB port
   Variables: -
   Returns  : [NO_ERR, ERR_CMD, ERR_NUM, ERR_I2C]
   ---------------------------------------------------------------------------*/
 uint8_t rs232_command_handler(void)
 {
   char    ch;
-  uint8_t cmd_rcvd = 0;
+  static uint8_t cmd_rcvd = 0;
   
-  while (!cmd_rcvd)
-  {
+  if (!cmd_rcvd && usart_kbhit())
+  { // A new character has been received
     ch = tolower(usart_getc()); // get character as lowercase
 	switch (ch)
 	{
@@ -154,8 +159,13 @@ uint8_t rs232_command_handler(void)
 		default  : rs232_inbuf[rs232_ptr++] = ch;
 				   break;
 	} // switch
-  } // while
-  return execute_rs232_command(rs232_inbuf);
+  } // if
+  if (cmd_rcvd)
+  {
+	  cmd_rcvd = 0;
+	  return execute_rs232_command(rs232_inbuf);
+  } // if
+  else return NO_ERR;
 } // rs232_command_handler()
 
 /*-----------------------------------------------------------------------------
@@ -166,21 +176,21 @@ uint8_t rs232_command_handler(void)
 
    - L0 / L1      : ALIVE Led ON / OFF
 
-   - M0 / M1 / M2 : System-Mode: M0=Modulating, M1=Non-Modulating, M2=Electrical
-
-   - N0 / N1      : Hysteresis Lower-Limit / Upper-Limit for Non-Modulating gas-valve
-     N2 / N3      : Hysteresis Lower-Limit / Upper-Limit for Electrical heating
+   - N0           : System-Mode: 0=Modulating, 1=Non-Modulating, 2=Electrical
+     N1 / N2      : Hysteresis Lower-Limit / Upper-Limit for Non-Modulating gas-valve
+     N3 / N4      : Hysteresis Lower-Limit / Upper-Limit for Electrical heating
 
    - P0 / P1      : set Pump OFF / ON
 
    - S0           : Ebrew hardware revision number
 	 S1			  : List value of parameters that can be set with Nx command
 	 S2           : List all connected I2C devices  
+	 S3           : List all tasks
 	 	
    - W0...W100    : PID-output, needed for:
-			        - PWM output for modulating gas-valve (M0)
-				    - Time-Division ON/OFF signal for non-modulating gas-valve (M1)
-				    - Time-Division ON/OFF signal for Electrical heating-element (M2)
+			        - PWM output for modulating gas-valve (N0=0)
+				    - Time-Division ON/OFF signal for non-modulating gas-valve (N0=1)
+				    - Time-Division ON/OFF signal for Electrical heating-element (N0=2)
    
   Variables: s: the string that contains the command from RS232 serial port 0
   Returns  : [NO_ERR, ERR_CMD, ERR_NUM, ERR_I2C] or ack. value for command
@@ -207,26 +217,8 @@ uint8_t execute_rs232_command(char *s)
 			     rval = 33 + num;
 				 switch (num)
 				 {
-				    case 0: // LM35
-							// 10 mV/°C ; VREF=1.1 V => TMAX = 11000 E-2 °C
-							// 110 / 1023 = 10/93
-							tmp2 = adc_read(num); // 0=LM35, 1=VHLT, 2=VMLT
-							tmp2 = moving_average(&lm35_ma,tmp2);
-							temp    = tmp2 * 10 / 93;
-							tmp2    = tmp2 - temp * 93 / 10;
-							frac_16 = (tmp2 * 1000 / 93); // (10/93)*100
-							ATOMIC_BLOCK(ATOMIC_FORCEON)
-							{
-								if (triac_too_hot)
-								{  // reset hysteresis if temp < lower limit
-								   triac_too_hot = (temp > TRIAC_LLIMIT);	
-								} // if
-								else 
-								{  // set hysteresis if temp > upper limit
-								   triac_too_hot = (temp > TRIAC_HLIMIT);
-								} // else
-							}							
-							sprintf(s2,"Lm35=%d.%02d\n",temp,frac_16);
+				    case 0: // LM35. Processing is done by lm35_task()
+							sprintf(s2,"Lm35=%d.%02d\n",lm35_temp,lm35_frac);
 							break;
 					case 1: // VHLT
 							temp = adc_read(num); // 0=LM35, 1=VHLT, 2=VMLT
@@ -272,20 +264,8 @@ uint8_t execute_rs232_command(char *s)
 				 } // else
 				 break;
 
-	   case 'm': // Ebrew System-Mode
-	             if (num > 2) rval = ERR_NUM;
-				 else
-				 {
-					rval = 40 + num;
-					// One of [GAS_MODULATING, GAS_NON_MODULATING, ELECTRICAL_HEATING]
-					system_mode = num; // set system_mode
-					sprintf(s2,"ok%2d\n",rval);
-					xputs(s2);
-				 } // else
-	             break;
-
-	   case 'n': // Set parameters to a new value
-	             if      (num > 3)                          rval = ERR_NUM;
+	   case 'n': // Set parameters / variables to a new value
+	             if      (num > 4)                          rval = ERR_NUM;
 				 else if ((s[2] != ' ') || (strlen(s) < 4)) rval = ERR_CMD;
 				 else
 				 {
@@ -293,16 +273,22 @@ uint8_t execute_rs232_command(char *s)
 					num2 = atoi(&s[3]); // convert to number
 	                switch (num)
 				    {
-					   case 0:  // non-modulating gas valve: hysteresis lower-limit
+					   case 0:  // Ebrew System-Mode
+					            if (num2 > 2) rval = ERR_NUM;
+								else 
+								{   // One of [GAS_MODULATING, GAS_NON_MODULATING, ELECTRICAL_HEATING]
+									system_mode = num2;
+								} // else					            
+					   case 1:  // non-modulating gas valve: hysteresis lower-limit
 					            gas_non_mod_llimit = num2;
 				 		        break;
-					   case 1:  // non-modulating gas valve: hysteresis upper-limit
+					   case 2:  // non-modulating gas valve: hysteresis upper-limit
 					            gas_non_mod_hlimit = num2;
 				 		        break;
-					   case 2:  // electrical heating: hysteresis lower-limit
+					   case 3:  // electrical heating: hysteresis lower-limit
 					            gas_mod_pwm_llimit = num2;
 				 		        break;
-					   case 3:  // electrical heating: hysteresis upper-limit
+					   case 4:  // electrical heating: hysteresis upper-limit
 					            gas_mod_pwm_hlimit = num2;
 				 		        break;
 					   default: break;
@@ -345,6 +331,9 @@ uint8_t execute_rs232_command(char *s)
 					         i2c_scan(PCA9544_CH2);  // PCA9544 channel 2
 					         i2c_scan(PCA9544_CH3);  // PCA9544 channel 3
 							 break;
+					 case 3: // List all tasks
+							 list_all_tasks(); 
+							 break;				 
 					 default: rval = ERR_NUM;
 							  break;
 				 } // switch

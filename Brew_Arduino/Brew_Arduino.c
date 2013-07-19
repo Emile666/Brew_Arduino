@@ -23,15 +23,16 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.2  2013/06/23 08:56:03  Emile
+// - Working version (with PC program) with new command-set.
+//
 //-----------------------------------------------------------------------------
 #include "brew_arduino.h"
-#include <avr/io.h>
-#include <avr/interrupt.h>
-#include <util/delay.h>         // for _delay_ms()
 
 // Global variables
 const char *ebrew_revision = "$Revision$"; // ebrew CVS revision number
 uint8_t    system_mode     = GAS_MODULATING;   // Default to Modulating Gas-valve
+
 //---------------------------------------------------------------------------------
 // system_mode == GAS_NON_MODULATING: a hysteresis block is used to determine when
 //                                    the RELAY (that controls the 24 Vac for the 
@@ -53,16 +54,40 @@ uint8_t  tmr_off_val   = 0;         // OFF-timer value for PWM to Time-Division 
 uint8_t  triac_llimit  = 60;        // Hysteresis lower-limit for triac_too_hot signal
 uint8_t  triac_hlimit  = 70;	    // Hysteresis upper-limit for triac_too_hot signal
 uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
-uint16_t irq_cnt       = 0;         // interrupt counter
 
-ma lm35_ma;                 // struct for LM35 moving_average filter
+ma       lm35_ma;                   // struct for LM35 moving_average filter
+int8_t   lm35_temp;                 // LM35 Temperature in °C
+uint16_t lm35_frac;                 // LM35 Temperature fraction part in E-2 °C
+ 
+/*------------------------------------------------------------------
+  Purpose  : This is the Timer-Interrupt routine which runs every msec. 
+             (f=1 kHz). It is used by the task-scheduler.
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
+ISR(TIMER2_COMPA_vect)
+{
+	scheduler_isr(); // call the ISR routine for the task-scheduler
+} // ISR()
+
+/*------------------------------------------------------------------
+  Purpose  : This is the task that toggles the LED on the Arduino
+             every 500 msec. (f=1 Hz).
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
+void toggle_led_task(void)
+{
+	PORTB ^= 0x20; // Toggle PB5 (SCK) with orange Arduino LED
+} // toggle_led_task()
 
 /*-----------------------------------------------------------------------------
-  Purpose  : Convert a PWM signal into a time-division signal of 100 * 50 msec.
+  Purpose  : Converts a PWM signal into a time-division signal of 100 * 50 msec.
              This routine should be called from the timer-interrupt every 50 msec.
 			 It uses the tmr_on_val and tmr_off_val values which were set by the
-			 process_pwm_signal. This routine should only be called when 
-			 system_mode is set to ELECTRICAL_HEATING.
+			 process_pwm_signal. If Electrical Heating (with a heating element)
+			 is NOT enabled, this routine returns immediately without doing 
+			 anything.
   Variables: tmr_on_val : the ON-time value
              tmr_off_val: the OFF-time value
 			 htimer     : the ON-timer
@@ -75,95 +100,121 @@ void pwm_2_time(void)
    static uint8_t  ltimer      = 0;    // The OFF-timer
    static uint8_t  std_td      = IDLE; // STD State number
 
-   switch (std_td)
-   {
-	   case IDLE:
-			//-------------------------------------------------------------
-			// This is the default state after power-up. Main function
-			// of this state is to initialize the electrical heater states.
-			//-------------------------------------------------------------
-			PORTD &= ~(HEATER | HEATER_LED); // set electrical heater OFF
-			ltimer = tmr_off_val;            // init. low-timer
-			std_td = EL_HTR_OFF;             // goto OFF-state
-			break;
+   if (system_mode == ELECTRICAL_HEATING)
+   {   // only run STD when ELECTRICAL HEATING is enabled
+	   switch (std_td)
+	   {
+		   case IDLE:
+				//-------------------------------------------------------------
+				// This is the default state after power-up. Main function
+				// of this state is to initialize the electrical heater states.
+				//-------------------------------------------------------------
+				PORTD &= ~(HEATER | HEATER_LED); // set electrical heater OFF
+				ltimer = tmr_off_val;            // init. low-timer
+				std_td = EL_HTR_OFF;             // goto OFF-state
+				break;
 
-	   case EL_HTR_OFF:
-		   //---------------------------------------------------------
-		   // Goto ON-state if timeout_ltimer && !triac_too_hot &&
-		   //      !0%_gamma
-		   //---------------------------------------------------------
-		   if (ltimer == 0)
-		   {  // OFF-timer has counted down
-			   if (tmr_on_val == 0)
-			   {   // indication for 0%, remain in this state
-				   ltimer = tmr_off_val; // init. timer again
-				   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-			   } // if
-			   else if (!triac_too_hot)
-			   {
-				   PORTD |= (HEATER | HEATER_LED); // set heater ON
-				   htimer = tmr_on_val; // init. high-timer
-				   std_td = EL_HTR_ON;  // go to ON-state
-			   } // else if
-			   // Remain in this state if timeout && !0% && triac_too_hot
-		   } // if
-		   else
-		   {   // timer has not counted down yet, continue
-			   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-			   ltimer--;         // decrement low-timer
-		   } // else
-		   break;
-
-	   case EL_HTR_ON:
-		   //---------------------------------------------------------
-		   // Goto OFF-state if triac_too_hot OR 
-		   //      (timeout_htimer && !100%_gamma)
-		   //---------------------------------------------------------
-		   if (triac_too_hot)
-		   {
-			   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-			   ltimer = tmr_off_val; // init. low-timer
-			   std_td = EL_HTR_OFF;  // go to 'OFF' state
-		   } // if
-		   else if (htimer == 0)
-		   {   // timer has counted down
-			   if (tmr_off_val == 0)
-			   {  // indication for 100%, remain in this state
-				   htimer = tmr_on_val; // init. high-timer again
-				   PORTD |= (HEATER | HEATER_LED); // Set heater ON
+		   case EL_HTR_OFF:
+			   //---------------------------------------------------------
+			   // Goto ON-state if timeout_ltimer && !triac_too_hot &&
+			   //      !0%_gamma
+			   //---------------------------------------------------------
+			   if (ltimer == 0)
+			   {  // OFF-timer has counted down
+				   if (tmr_on_val == 0)
+				   {   // indication for 0%, remain in this state
+					   ltimer = tmr_off_val; // init. timer again
+					   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
+				   } // if
+				   else if (!triac_too_hot)
+				   {
+					   PORTD |= (HEATER | HEATER_LED); // set heater ON
+					   htimer = tmr_on_val; // init. high-timer
+					   std_td = EL_HTR_ON;  // go to ON-state
+				   } // else if
+				   // Remain in this state if timeout && !0% && triac_too_hot
 			   } // if
 			   else
-			   {   // tmr_off_val > 0
-			       PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
+			   {   // timer has not counted down yet, continue
+				   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
+				   ltimer--;         // decrement low-timer
+			   } // else
+			   break;
+
+		   case EL_HTR_ON:
+			   //---------------------------------------------------------
+			   // Goto OFF-state if triac_too_hot OR 
+			   //      (timeout_htimer && !100%_gamma)
+			   //---------------------------------------------------------
+			   if (triac_too_hot)
+			   {
+				   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
 				   ltimer = tmr_off_val; // init. low-timer
 				   std_td = EL_HTR_OFF;  // go to 'OFF' state
+			   } // if
+			   else if (htimer == 0)
+			   {   // timer has counted down
+				   if (tmr_off_val == 0)
+				   {  // indication for 100%, remain in this state
+					   htimer = tmr_on_val; // init. high-timer again
+					   PORTD |= (HEATER | HEATER_LED); // Set heater ON
+				   } // if
+				   else
+				   {   // tmr_off_val > 0
+					   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
+					   ltimer = tmr_off_val; // init. low-timer
+					   std_td = EL_HTR_OFF;  // go to 'OFF' state
+				   } // else
+			   } // if
+			   else
+			   {  // timer has not counted down yet, continue
+				   PORTD |= (HEATER | HEATER_LED); // Set heater ON
+				   htimer--;        // decrement high-timer
 			   } // else
-		   } // if
-		   else
-		   {  // timer has not counted down yet, continue
-			   PORTD |= (HEATER | HEATER_LED); // Set heater ON
-			   htimer--;        // decrement high-timer
-		   } // else
-		   break;
+			   break;
 
-	   default: break;	
-   } // switch  
+		   default: break;	
+	   } // switch 
+   } // if
 } // pwm_2_time()
 
-ISR(TIMER2_COMPA_vect)
+/*------------------------------------------------------------------
+  Purpose  : This is the task that processes the temperature from
+             the LM35 temperature sensor. This sensor is connected
+			 to ADC0. The LM35 outputs 10 mV/°C ; VREF=1.1 V,
+			 therefore => Max. Temp. = 11000 E-2 °C
+			 Conversion constant = 110 / 1023 = 10/93
+  Variables: lm35_temp: contains temperature in °C
+			 lm35_frac: contains fractional temperature in E-2 °C
+             triac_too_hot: is set/reset
+  Returns  : -
+  ------------------------------------------------------------------*/
+void lm35_task(void)
 {
-	if (((irq_cnt % 50) == 1) && (system_mode == ELECTRICAL_HEATING))
-	{   // call every 50 msec and only in case of ELECTRICAL HEATING
-		pwm_2_time();	
-	} // if
-	
-	if ((irq_cnt % IRQ_CNT) == 2)
-	{
-		PORTB ^= 0x20; // Toggle PB5 (SCK) with orange Arduino LED
-	} // if
-	irq_cnt++; // irq_cnt counts to 0xffff and then starts at 0 again
-} // ISR()
+    uint16_t tmp2; // temporary variable
 
+	tmp2      = adc_read(LM35);
+	tmp2      = moving_average(&lm35_ma,tmp2);
+	lm35_temp = (int8_t)(tmp2 * 10 / 93);
+	tmp2     -= (int16_t)lm35_temp * 93 / 10;
+	lm35_frac = (tmp2 * 1000 / 93); // (10/93)*100
+	if (triac_too_hot)
+	{  // reset hysteresis if temp < lower limit
+		triac_too_hot = (lm35_temp >= triac_llimit);	
+	} // if
+	else 
+	{  // set hysteresis if temp > upper limit
+		triac_too_hot = (lm35_temp > triac_hlimit);
+	} // else
+} // lm35_task()
+
+/*------------------------------------------------------------------
+  Purpose  : This function initializes all the Arduino ports that 
+             are used by the E-brew hardware and it initializes the
+			 timer-interrupt to 1 msec. (1 kHz)
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
 void init_interrupt(void)
 {
 	DDRB   = 0x20;           // initialize PB5 (Arduino LED) for output, PB0 for input
@@ -176,18 +227,21 @@ void init_interrupt(void)
 	OCR2A  =  124;   // this should set interrupt frequency to 1000 Hz
 	TCNT2  =  0;     // start counting at 0
 	TIMSK2 |= (0x01 << OCIE2A);   // Set interrupt on Compare Match
-	sei();                        // set global interrupt enable	
 } // init_interrupt()
 
+/*------------------------------------------------------------------
+  Purpose  : This is the main() function for the E-brew hardware.
+  Variables: -
+  Returns  : should never return
+  ------------------------------------------------------------------*/
 int main(void)
 {
-	// Initialize all hardware devices
-	init_interrupt();
-	i2c_init();       // init. I2C bus
-	adc_init();       // init. internal 10-bits AD-Converter
-	pwm_init();       // init. PWM function
+	init_interrupt(); // Initialize Interrupts and all hardware devices
+	i2c_init();       // Init. I2C bus
+	adc_init();       // Init. internal 10-bits AD-Converter
+	pwm_init();       // Init. PWM function
 	pwm_write(0);	  // Start with 0 % duty-cycle
-	init_moving_average(&lm35_ma,10,20); // Init. LM35 MA10-filter
+	init_moving_average(&lm35_ma,10,20); // Init. LM35 MA10-filter with 20 °C
 	
 	//------------------------------------------------------
 	// PD2..PD4: LEDs ; PD5..PD7: Digital switching outputs
@@ -200,9 +254,18 @@ int main(void)
 	// Initialize Serial Communication, See usart.h for BAUD
 	// F_CPU should be a Project Define (-DF_CPU=(xxxL)
 	usart_init(MYUBRR); // Initializes the serial communication
-	xputs("E-Brew System v2.00!\n");
+	
+	// Initialize all the tasks for the E-Brew system
+	add_task(toggle_led_task ,"led_blink" , 10,  500); // Toggle led every 500 msec.
+	add_task(pwm_2_time      ,"pwm_2_time", 30,   50); // Electrical Heating PWM every 50 msec.
+	add_task(lm35_task       ,"lm35_task" , 50, 1000); // Process Temperature from LM35 sensor
+	
+	sei(); // set global interrupt enable, start task-scheduler
+	xputs("E-Brew V2.0!\n"); // welcome message, assure that all is well!
+
     while(1)
     {
+		dispatch_tasks(); // run the task-scheduler
 		switch (rs232_command_handler()) // run command handler continuously
 		{
 			case ERR_CMD: xputs("Command Error\n"); break;

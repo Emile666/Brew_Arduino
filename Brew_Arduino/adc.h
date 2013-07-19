@@ -15,9 +15,10 @@
 //-------------------------------------------------------------------------
 // ADC Channel Definitions
 //-------------------------------------------------------------------------
-#define VMLT (ADC_CH0)
+#define LM35 (ADC_CH0)
 #define VHLT (ADC_CH1)
-#define LM35 (ADC_CH2)
+#define VMLT (ADC_CH2)
+#define VRES (ADC_CH3)
 
 void     adc_init();
 uint16_t adc_read(uint8_t adc_ch);

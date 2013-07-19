@@ -21,7 +21,9 @@
 //                               ------------
 //                                ATmega328P
 //-----------------------------------------------------------------------------
-#include <util/delay.h>
+#include <util/delay.h>         // for _delay_ms()
+#include <avr/io.h>
+#include <avr/interrupt.h>
 #include "adc.h"
 #include "i2c.h"
 #include "pwm.h"
@@ -29,11 +31,7 @@
 #include "usart.h"
 #include "command_interpreter.h"
 #include "misc.h"
-
-//-------------------------------------------------------------------------
-// IRQ_CNT  : nr. of milliseconds before Arduino LED (digital 13) is toggled
-//-------------------------------------------------------------------------
-#define IRQ_CNT   (500)
+#include "scheduler.h"
 
 //-----------------------------
 // PORTD defines
@@ -46,7 +44,7 @@
 #define HEATER     (0x80)
 
 //-----------------------------
-// Ebrew System Mode
+// E-brew System Mode
 //-----------------------------
 #define GAS_MODULATING     (0)
 #define GAS_NON_MODULATING (1)
@@ -58,9 +56,5 @@
 #define IDLE       (0)
 #define EL_HTR_OFF (1)
 #define EL_HTR_ON  (2)
-
-// Hysteresis values for triac_too_hot signal
-#define TRIAC_LLIMIT (60)
-#define TRIAC_HLIMIT (70)
 
 #endif /* _BREW_ARDUINO_H_ */
