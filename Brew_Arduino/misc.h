@@ -4,6 +4,9 @@
 // File   : misc.h
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.1.1.1  2013/06/22 19:32:09  Emile
+// First import of Brew_Arduino directory (Atmel Studio 6)
+//
 //-----------------------------------------------------------------------------
 #ifndef _MISC_H
 #define _MISC_H
@@ -23,6 +26,6 @@ void     init_moving_average(ma *p, uint8_t N, uint16_t init_val);
 uint16_t moving_average(ma *p, uint16_t x);
 void   init_sample_delay(ma *p, int TD);
 double sample_delay(ma *p, double x);
-void   slope_limiter(const double lim, const double Told, double *Tnew);
+void slope_limiter(const uint16_t lim, const uint16_t Told, uint16_t *Tnew);
 
 #endif

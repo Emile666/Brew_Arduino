@@ -18,9 +18,9 @@
 *************************************************************************/
 void pwm_init(void)
 {
-   DDRB   |= (1<<DDB1);   // PB1/OC1A is now an output
-   ICR1    = 100;         // Set ICR1 value as TOP
-   TCCR1A |= (1<<COM1A1); // Set non-inverting mode for OC1A
+   DDRB   |= (1<<DDB1);    // PB1/OC1A is now an output
+   ICR1    = TMR1_CNT_MAX; // Set ICR1 value as max. value (100)
+   TCCR1A |= (1<<COM1A1);  // Set non-inverting mode for OC1A
    TCCR1A |= (1<<WGM11);
    TCCR1A &= ~((1<<COM1A0) | (1<<WGM10));
    TCCR1B |= (1<<WGM12) | (1<<WGM13); // Set fast PWM with ICR1 as TOP

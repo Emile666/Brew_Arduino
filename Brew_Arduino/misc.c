@@ -4,6 +4,9 @@
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.1.1.1  2013/06/22 19:32:09  Emile
+// First import of Brew_Arduino directory (Atmel Studio 6)
+//
 //-----------------------------------------------------------------------------
 #include "misc.h"
 
@@ -112,7 +115,7 @@ double sample_delay(ma *p, double x)
    return xn;      // return value = x[k-N]
 } // sample_delay()
 
-void slope_limiter(const double lim, const double Told, double *Tnew)
+void slope_limiter(const uint16_t lim, const uint16_t Told, uint16_t *Tnew)
 /*------------------------------------------------------------------
   Purpose  : This function limits the increase of Tnew by lim.
 
@@ -130,7 +133,7 @@ void slope_limiter(const double lim, const double Told, double *Tnew)
   Returns  : none
   ------------------------------------------------------------------*/
 {
-   double diff = *Tnew - Told; // calculate difference
+   uint16_t diff = *Tnew - Told; // calculate difference
 
    if      (diff > lim)  *Tnew =  Told + lim;
    else if (diff < -lim) *Tnew =  Told - lim;

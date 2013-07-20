@@ -7,6 +7,12 @@
   Purpose : This is the header-file for scheduler.c
   ------------------------------------------------------------------
   $Log$
+  Revision 1.1  2013/07/19 10:51:02  Emile
+  - I2C frequency 50 50 kHz to get 2nd LM92 working
+  - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
+  - Command S3 added, list_all_tasks. To-Do: get timing-measurement working
+  - Scheduler added with 3 tasks: lm35, led_blink and pwm_2_time
+
   ==================================================================
 */ 
 #ifndef _SCHEDULER_H
@@ -43,7 +49,7 @@ typedef struct _task_struct
 	uint16_t Counter;         // Running counter, is init. from Period
 	uint8_t	 Status;          // bit 1: 1=enabled ; bit 0: 1=ready to run
 	uint16_t Duration;        // Measured task-duration in clock-ticks
-	uint16_t Duration2;       // Measured task-duration in clock-ticks
+	uint16_t Duration_Max;    // Max. measured task-duration
 } task_struct;
 
 void    scheduler_isr(void);  // run-time function for scheduler

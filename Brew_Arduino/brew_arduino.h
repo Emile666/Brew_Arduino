@@ -24,6 +24,7 @@
 #include <util/delay.h>         // for _delay_ms()
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <string.h>
 #include "adc.h"
 #include "i2c.h"
 #include "pwm.h"
@@ -56,5 +57,7 @@
 #define IDLE       (0)
 #define EL_HTR_OFF (1)
 #define EL_HTR_ON  (2)
+
+void print_ebrew_revision(void);
 
 #endif /* _BREW_ARDUINO_H_ */

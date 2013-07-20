@@ -4,6 +4,12 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.4  2013/07/19 10:51:02  Emile
+// - I2C frequency 50 50 kHz to get 2nd LM92 working
+// - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
+// - Command S3 added, list_all_tasks. To-Do: get timing-measurement working
+// - Scheduler added with 3 tasks: lm35, led_blink and pwm_2_time
+//
 // Revision 1.3  2013/06/23 09:08:51  Emile
 // - Headers added to files
 //
@@ -15,6 +21,7 @@
 #include "command_interpreter.h"
 #include "misc.h"
 #include "brew_arduino.h"
+#include <stdio.h>
 
 extern uint8_t    system_mode;       // from Brew_Arduino.c
 extern const char *ebrew_revision;   // ebrew CVS revision number
@@ -27,9 +34,11 @@ extern uint8_t    triac_hlimit;
 extern uint8_t    tmr_on_val;           // ON-timer  for PWM to Time-Division signal
 extern uint8_t    tmr_off_val;          // OFF-timer for PWM to Time-Division signal
 
-extern ma         lm35_ma;              // Moving Average filter for LM35 Temperature
-extern int8_t     lm35_temp;            // LM35 Temperature in °C
+extern uint8_t    lm35_temp;            // LM35 Temperature in °C
 extern uint16_t   lm35_frac;            // LM35 Temperature fraction part in E-2 °C
+
+extern int16_t    thlt_temp_16;         // THLT Temperature in °C * 16
+extern int16_t    tmlt_temp_16;         // TMLT Temperature in °C * 16
 
 char    rs232_inbuf[USART_BUFLEN]; // buffer for RS232 commands
 uint8_t rs232_ptr = 0;             // index in RS232 buffer
@@ -205,12 +214,11 @@ uint8_t execute_rs232_command(char *s)
 {
    uint8_t  num = atoi(&s[1]); // convert number in command (until space is found)
    uint8_t  num2;               // 2nd number (some commands only) 
-   uint8_t  rval = NO_ERR, frac_16, err;
-   int16_t  temp;
-   uint16_t tmp2;
-   char     s2[40], s3[USART_BUFLEN];
+   uint8_t  rval = NO_ERR, err;
+   uint16_t temp, frac_16;
+   //uint16_t tmp2;
+   char     s2[40]; // Used for printing to RS232 port
    
-   strcpy(s3,s); 
    switch (s[0])
    {
 	   case 'a': // Read analog (LM35, VHLT, VMLT) + digital (THLT, TMLT) values
@@ -228,23 +236,24 @@ uint8_t execute_rs232_command(char *s)
 							temp = adc_read(num); // 0=LM35, 1=VHLT, 2=VMLT
 							sprintf(s2,"Vmlt=%d\n",temp);
 							break;
-					case 3: // THLT
-							temp = lm92_read(THLT, &frac_16, &err); // 0=THLT, 1=TMLT
+					case 3: // THLT. Processing is done by thlt_task()
+							temp     = thlt_temp_16 >> 4;     // The integer part of THLT
+							frac_16  = thlt_temp_16 & 0x000f; // The fractional part of THLT
+							frac_16 *= 625;                   // 625 = 10000 / 16
+							/*temp = lm92_read(THLT, &frac_16, &err); // 0=THLT, 1=TMLT
 							if (err)
 							{
 								sprintf(s2,"Thlt=0.00\n");
 								rval = ERR_I2C;
 							} // if
-							else sprintf(s2,"Thlt=%d.%04d\n",temp,(uint16_t)frac_16*625);
+							*/
+							sprintf(s2,"Thlt=%d.%04d\n",temp,frac_16);
 							break;
-					case 4: // TMLT
-							temp = lm92_read(TMLT, &frac_16, &err); // 0=THLT, 1=TMLT
-							if (err)
-							{
-								sprintf(s2,"Tmlt=0.00\n");
-								rval = ERR_I2C;
-							} // if							
-							else sprintf(s2,"Tmlt=%d.%04d\n",temp,(uint16_t)frac_16*625);
+					case 4: // TMLT. Processing is done by tmlt_task()
+							temp     = tmlt_temp_16 >> 4;     // The integer part of TMLT
+							frac_16  = tmlt_temp_16 & 0x000f; // The fractional part of TMLT
+							frac_16 *= 625;                   // 625 = 10000 / 16
+							sprintf(s2,"Tmlt=%d.%04d\n",temp,frac_16);
 							break;
 					default: rval = ERR_NUM;
 					         break;
@@ -315,8 +324,7 @@ uint8_t execute_rs232_command(char *s)
 				 switch (num)
 				 {
 					 case 0: // Ebrew revision
-							 sprintf(s2,"%s\n",ebrew_revision); 
-							 xputs(s2); // print CVS revision number
+							 print_ebrew_revision(); // print CVS revision number
 							 break;
 					 case 1: // List parameters
 							 sprintf(s2,"%01d,%3d,%3d,%3d,%3d\n",system_mode, 
@@ -337,6 +345,7 @@ uint8_t execute_rs232_command(char *s)
 					 default: rval = ERR_NUM;
 							  break;
 				 } // switch
+				 break;
 
 	   case 'w': // PWM signal for Modulating Gas-Burner
 	             rval = 52 + num;

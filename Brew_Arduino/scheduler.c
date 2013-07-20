@@ -10,6 +10,12 @@
             executing tasks in a cooperative (non pre-emptive) way.
   ------------------------------------------------------------------
   $Log$
+  Revision 1.1  2013/07/19 10:51:02  Emile
+  - I2C frequency 50 50 kHz to get 2nd LM92 working
+  - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
+  - Command S3 added, list_all_tasks. To-Do: get timing-measurement working
+  - Scheduler added with 3 tasks: lm35, led_blink and pwm_2_time
+
   ==================================================================
 */ 
 #include "scheduler.h"
@@ -66,15 +72,18 @@ void dispatch_tasks(void)
 	{
 		if((task_list[index].Status & (TASK_READY | TASK_ENABLED)) == (TASK_READY | TASK_ENABLED))
 		{
-			cli(); time1 = TCNT0; sei(); // Read value of timer-counter 2 (runs at 20 kHz)
+			cli(); time1 = TCNT1; sei(); // Read value of timer-counter 2 (runs at 20 kHz)
 			task_list[index].pFunction(); // run the task
 			task_list[index].Status  &= ~TASK_READY; // reset the task when finished
 			task_list[index].Counter  = task_list[index].Period; // reset counter
-			cli(); time2 = TCNT0; sei();
-			//if (time2 < time1) time2  = (uint16_t)(65536UL + time2 - time1);
-			//else               time2 -= time1; 
-			task_list[index].Duration  = time1; // time difference in clock-ticks
-			task_list[index].Duration2 = time2; // time difference in clock-ticks
+			cli(); time2 = TCNT1; sei();
+			if (time2 < time1) time2 += TMR1_CNT_MAX - time1;
+			else               time2 -= time1; 
+			task_list[index].Duration  = time2; // time difference in clock-ticks
+			if (time2 > task_list[index].Duration_Max)
+			{
+				task_list[index].Duration_Max = time2;
+			} // if
 		} // if
 		index++;
 	} // while
@@ -106,13 +115,14 @@ uint8_t add_task(void (*task_ptr), char *Name, uint16_t delay, uint16_t period)
 
 	if(task_list[index].Period == 0)
 	{
-		task_list[index].pFunction = task_ptr;     // Pointer to Function
-		task_list[index].Period    = temp2;        // Period in msec.
-		task_list[index].Counter   = temp2;	       // Countdown timer
-		task_list[index].Delay     = temp1;        // Initial delay before start
-		task_list[index].Status   |= TASK_ENABLED; // Eable task by default
-		task_list[index].Status   &= ~TASK_READY;  // Task not ready to run
-		task_list[index].Duration  = 0;            // Actual Task Duration
+		task_list[index].pFunction    = task_ptr;       // Pointer to Function
+		task_list[index].Period       = temp2;          // Period in msec.
+		task_list[index].Counter      = temp2;	        // Countdown timer
+		task_list[index].Delay        = temp1;          // Initial delay before start
+		task_list[index].Status      |= TASK_ENABLED;   // Enable task by default
+		task_list[index].Status      &= ~TASK_READY;    // Task not ready to run
+		task_list[index].Duration     = 0;              // Actual Task Duration
+		task_list[index].Duration_Max = 0;              // Max. Task Duration
 		strncpy(task_list[index].Name, Name, NAME_LEN); // Name of Task
 		max_tasks++; // increase number of tasks
 	} // if
@@ -217,8 +227,8 @@ void list_all_tasks(void)
 	uint8_t index = 0;
 	char    s[50];
 	
-	xputs("Task-Name      T(ms) Stat T(50us)\n");
-	xputs("---------------------------------\n");
+	xputs("Task-Name      T(ms) Stat T(us) M(us)\n");
+	xputs("-------------------------------------\n");
 	//go through the active tasks
 	if(task_list[index].Period != 0)
 	{
@@ -226,7 +236,8 @@ void list_all_tasks(void)
 		{
 			sprintf(s,"%-14s %05d 0x%02x %05d %05d\n", task_list[index].Name,
 			        task_list[index].Period,task_list[index].Status,
-					task_list[index].Duration, task_list[index].Duration2);
+					USEC_PER_CLOCKTICK * task_list[index].Duration,
+					USEC_PER_CLOCKTICK * task_list[index].Duration_Max);
 			xputs(s);
 			index++;
 		} // while
