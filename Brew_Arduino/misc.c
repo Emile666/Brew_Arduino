@@ -4,6 +4,11 @@
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.2  2013/07/20 14:51:59  Emile
+// - LM35, THLT and TMLT tasks are now working
+// - Max. duration added to scheduler
+// - slope_limiter & lm92_read() now work with uint16_t instead of float
+//
 // Revision 1.1.1.1  2013/06/22 19:32:09  Emile
 // First import of Brew_Arduino directory (Atmel Studio 6)
 //

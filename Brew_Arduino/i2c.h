@@ -67,9 +67,7 @@ unsigned char i2c_readAck(void); // read one byte from the I2C device, request m
 unsigned char i2c_readNak(void); // read one byte from the I2C device, read is followed by a stop condition
 unsigned char i2c_read(unsigned char ack); // read one byte from the I2C device
 enum i2c_acks i2c_select_channel(uint8_t ch); // Set PCA9544 channel
-int16_t       lm92_read(uint8_t dvc, uint8_t *frac_16, uint8_t *err);
-int16_t       lm92_read16(uint8_t dvc, uint8_t *err);
-float         lm92_readf(uint8_t dvc, uint8_t *err);
+int16_t       lm92_read(uint8_t dvc, uint8_t *err);
 
 //  Implemented as a macro, which calls either i2c_readAck or i2c_readNak
 #define i2c_read(ack)  (ack==I2C_ACK) ? i2c_readAck() : i2c_readNak(); 

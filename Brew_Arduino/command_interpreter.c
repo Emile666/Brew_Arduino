@@ -4,6 +4,11 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.5  2013/07/20 14:51:59  Emile
+// - LM35, THLT and TMLT tasks are now working
+// - Max. duration added to scheduler
+// - slope_limiter & lm92_read() now work with uint16_t instead of float
+//
 // Revision 1.4  2013/07/19 10:51:02  Emile
 // - I2C frequency 50 50 kHz to get 2nd LM92 working
 // - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
@@ -23,25 +28,43 @@
 #include "brew_arduino.h"
 #include <stdio.h>
 
-extern uint8_t    system_mode;       // from Brew_Arduino.c
-extern const char *ebrew_revision;   // ebrew CVS revision number
+extern uint8_t    system_mode;         // from Brew_Arduino.c
+extern const char *ebrew_revision;     // ebrew CVS revision number
 extern uint8_t    gas_non_mod_llimit; 
 extern uint8_t    gas_non_mod_hlimit;
 extern uint8_t    gas_mod_pwm_llimit;
 extern uint8_t    gas_mod_pwm_hlimit;
-extern uint8_t    triac_llimit;
-extern uint8_t    triac_hlimit;
-extern uint8_t    tmr_on_val;           // ON-timer  for PWM to Time-Division signal
-extern uint8_t    tmr_off_val;          // OFF-timer for PWM to Time-Division signal
+extern uint8_t    tmr_on_val;          // ON-timer  for PWM to Time-Division signal
+extern uint8_t    tmr_off_val;         // OFF-timer for PWM to Time-Division signal
 
-extern uint8_t    lm35_temp;            // LM35 Temperature in °C
-extern uint16_t   lm35_frac;            // LM35 Temperature fraction part in E-2 °C
+extern uint16_t   lm35_temp;           // LM35 Temperature in E-2 °C
+extern uint16_t   triac_llimit;        // Hysteresis lower-limit for triac_too_hot in E-2 °C
+extern uint16_t   triac_hlimit;	       // Hysteresis upper-limit for triac_too_hot in E-2 °C
 
-extern int16_t    thlt_temp_16;         // THLT Temperature in °C * 16
-extern int16_t    tmlt_temp_16;         // TMLT Temperature in °C * 16
+extern uint16_t   vhlt_10;             // VHLT Volume in E-1 L
+extern int16_t    vhlt_offset_10;      // VHLT offset-correction in E-1 L
+extern uint16_t   vhlt_max_10;         // VHLT MAX Volume in E-1 L
+extern int16_t    vhlt_slope_10;       // VHLT slope-limiter in E-1 L/sec.
 
-char    rs232_inbuf[USART_BUFLEN]; // buffer for RS232 commands
-uint8_t rs232_ptr = 0;             // index in RS232 buffer
+extern uint16_t   vmlt_10;             // VMLT Volume in E-1 L
+extern int16_t    vmlt_offset_10;      // VMLT offset-correction in E-1 L
+extern uint16_t   vmlt_max_10;         // VMLT MAX Volume in E-1 L
+extern int16_t    vmlt_slope_10;       // VMLT slope-limiter in E-1 L/sec.
+
+//------------------------------------------------------
+// The extension _16 indicates a signed Q8.4 format!
+// This is used for both the HLT and MLT temperatures
+//------------------------------------------------------
+extern int16_t    thlt_temp_16;        // THLT Temperature in °C * 16
+extern int16_t    thlt_offset_16;      // THLT offset-correction in °C * 16
+extern int16_t    thlt_slope_16;       // THLT slope-limiter is 2 °C/sec. * 16
+
+extern int16_t    tmlt_temp_16;        // TMLT Temperature in °C * 16
+extern int16_t    tmlt_offset_16;      // TMLT offset-correction in °C * 16
+extern int16_t    tmlt_slope_16;       // TMLT slope-limiter in °C/sec.
+
+char    rs232_inbuf[USART_BUFLEN];     // buffer for RS232 commands
+uint8_t rs232_ptr = 0;                 // index in RS232 buffer
 
 /*-----------------------------------------------------------------------------
   Purpose  : Scan all devices on the I2C bus on all channels of the PCA9544
@@ -178,6 +201,78 @@ uint8_t rs232_command_handler(void)
 } // rs232_command_handler()
 
 /*-----------------------------------------------------------------------------
+  Purpose  : Receive a value from the command-line and assign this value to 
+             the proper parameter.
+  Variables: num: the parameter number
+             val: the value for the parameter
+  Returns  : [NO_ERR, ERR_NUM]
+  ---------------------------------------------------------------------------*/
+uint8_t set_parameter(uint8_t num, uint16_t val)
+{
+	uint8_t rval = NO_ERR;
+	
+	switch (num)
+	{
+		case 0:  // Ebrew System-Mode
+				if (val > 2) rval = ERR_NUM;
+				else 
+				{   // [GAS_MODULATING, GAS_NON_MODULATING, ELECTRICAL_HEATING]
+					system_mode = val;
+				} // else
+				break;
+		case 1:  // non-modulating gas valve: hysteresis lower-limit [%]
+				gas_non_mod_llimit = val;
+				break;
+		case 2:  // non-modulating gas valve: hysteresis upper-limit [%]
+				gas_non_mod_hlimit = val;
+				break;
+		case 3:  // Modulating gas-valve Hysteresis lower-limit [%]
+				gas_mod_pwm_llimit = val;
+				break;
+		case 4:  // Modulating gas-valve Hysteresis upper-limit [%]
+				gas_mod_pwm_hlimit = val;
+				break;
+		case 5:  // Lower-limit for switching of Electrical Heating (triac_too_hot) [°C]
+				triac_llimit = val;
+				break;
+		case 6:  // Upper-limit for switching of Electrical Heating (triac_too_hot) [°C]
+				triac_hlimit = val;
+				break;
+		case 7:  // Offset to add to HLT Volume measurement [E-1 L]
+				vhlt_offset_10 = val;
+				break;
+		case 8:  // Max. volume of HLT kettle [E-1 L]
+				vhlt_max_10 = val;
+				break;
+		case 9:  // Slope-Limiter for HLT Volume measurement [E-1 L/sec.]
+				vhlt_slope_10 = val;
+				break;
+		case 10: // Offset to add to MLT Volume measurement [E-1 L]
+				vmlt_offset_10 = val;
+				break;
+		case 11: // Max. volume of MLT kettle [E-1 L]
+				vmlt_max_10 = val;
+				break;
+		case 12: // Slope-Limiter for MLT Volume measurement [E-1 L/sec.]
+				vmlt_slope_10 = val;
+				break;
+		case 13: // Offset (Q8.4) to add to HLT Temp. measurement [°C/16]
+				thlt_offset_16 = val;
+				break;
+		case 14: // Slope Limiter (Q8.4) for HLT Temp. measurement [°C/(16.sec.)]
+				thlt_slope_16 = val;
+				break;
+		case 15: // Offset (Q8.4) to add to MLT Temp. measurement [°C/16]
+				tmlt_offset_16 = val;
+				break;
+		case 16: // Slope Limiter (Q8.4) for MLT Temp. measurement [°C/(16.sec.)]
+				tmlt_slope_16 = val;
+				break;
+		default: break;
+	} // switch
+} // set_parameter()
+
+/*-----------------------------------------------------------------------------
   Purpose: interpret commands which are received via the USB serial terminal:
    - A0           : Read Analog value: LM35 temperature sensor
    - A1 / A2      : Read Analog value: VHLT / VMLT Volumes
@@ -198,7 +293,7 @@ uint8_t rs232_command_handler(void)
 	 	
    - W0...W100    : PID-output, needed for:
 			        - PWM output for modulating gas-valve (N0=0)
-				    - Time-Division ON/OFF signal for non-modulating gas-valve (N0=1)
+				    - Time-Division ON/OFF signal for Non-Modulating gas-valve (N0=1)
 				    - Time-Division ON/OFF signal for Electrical heating-element (N0=2)
    
   Variables: s: the string that contains the command from RS232 serial port 0
@@ -212,11 +307,9 @@ uint8_t rs232_command_handler(void)
   ---------------------------------------------------------------------------*/
 uint8_t execute_rs232_command(char *s)
 {
-   uint8_t  num = atoi(&s[1]); // convert number in command (until space is found)
-   uint8_t  num2;               // 2nd number (some commands only) 
+   uint8_t  num  = atoi(&s[1]); // convert number in command (until space is found)
    uint8_t  rval = NO_ERR, err;
    uint16_t temp, frac_16;
-   //uint16_t tmp2;
    char     s2[40]; // Used for printing to RS232 port
    
    switch (s[0])
@@ -226,34 +319,32 @@ uint8_t execute_rs232_command(char *s)
 				 switch (num)
 				 {
 				    case 0: // LM35. Processing is done by lm35_task()
-							sprintf(s2,"Lm35=%d.%02d\n",lm35_temp,lm35_frac);
+							temp = lm35_temp / 100;
+							sprintf(s2,"Lm35=%d.%02d\n",temp,lm35_temp-100*temp);
 							break;
-					case 1: // VHLT
-							temp = adc_read(num); // 0=LM35, 1=VHLT, 2=VMLT
-							sprintf(s2,"Vhlt=%d\n",temp);
+					case 1: // VHLT. Processing is done by vhlt_task()
+							temp = vhlt_10 / 10;
+							sprintf(s2,"Vhlt=%d.%1d\n",temp,vhlt_10-10*temp);
 							break;
-					case 2: // VMLT
-							temp = adc_read(num); // 0=LM35, 1=VHLT, 2=VMLT
-							sprintf(s2,"Vmlt=%d\n",temp);
+					case 2: // VMLT. Processing is done by vmlt_task()
+							temp = vmlt_10 / 10;
+							sprintf(s2,"Vmlt=%d.%1d\n",temp,vmlt_10-10*temp);
 							break;
 					case 3: // THLT. Processing is done by thlt_task()
 							temp     = thlt_temp_16 >> 4;     // The integer part of THLT
 							frac_16  = thlt_temp_16 & 0x000f; // The fractional part of THLT
-							frac_16 *= 625;                   // 625 = 10000 / 16
-							/*temp = lm92_read(THLT, &frac_16, &err); // 0=THLT, 1=TMLT
-							if (err)
-							{
-								sprintf(s2,"Thlt=0.00\n");
-								rval = ERR_I2C;
-							} // if
-							*/
-							sprintf(s2,"Thlt=%d.%04d\n",temp,frac_16);
+							frac_16 *= 50;                    // 100 / 16 = 50 / 8
+							frac_16 +=  4;                    // 0.5 for rounding
+							frac_16 >>= 3;                    // SHR 3 = divide by 8
+							sprintf(s2,"Thlt=%d.%02d\n",temp,frac_16);
 							break;
 					case 4: // TMLT. Processing is done by tmlt_task()
 							temp     = tmlt_temp_16 >> 4;     // The integer part of TMLT
 							frac_16  = tmlt_temp_16 & 0x000f; // The fractional part of TMLT
-							frac_16 *= 625;                   // 625 = 10000 / 16
-							sprintf(s2,"Tmlt=%d.%04d\n",temp,frac_16);
+							frac_16 *= 50;                    // 100 / 16 = 50 / 8
+							frac_16 +=  4;                    // 0.5 for rounding
+							frac_16 >>= 3;                    // SHR 3 = divide by 8
+							sprintf(s2,"Tmlt=%d.%02d\n",temp,frac_16);
 							break;
 					default: rval = ERR_NUM;
 					         break;
@@ -274,37 +365,27 @@ uint8_t execute_rs232_command(char *s)
 				 break;
 
 	   case 'n': // Set parameters / variables to a new value
-	             if      (num > 4)                          rval = ERR_NUM;
-				 else if ((s[2] != ' ') || (strlen(s) < 4)) rval = ERR_CMD;
+				 if (((num >  9) && ((s[3] != ' ') || (strlen(s) < 5)) ||
+				     ((num < 10) && ((s[2] != ' ') || (strlen(s) < 4)))))
+				 {  // check for error in command: 'nx yy' or 'nxx yy'
+					rval = ERR_CMD; 
+				 } // if				 
+	             else if (num > 16)
+				 {
+					 rval = ERR_NUM;
+				 } // else if
 				 else
 				 {
-					rval = 43 + num; 
-					num2 = atoi(&s[3]); // convert to number
-	                switch (num)
-				    {
-					   case 0:  // Ebrew System-Mode
-					            if (num2 > 2) rval = ERR_NUM;
-								else 
-								{   // One of [GAS_MODULATING, GAS_NON_MODULATING, ELECTRICAL_HEATING]
-									system_mode = num2;
-								} // else					            
-					   case 1:  // non-modulating gas valve: hysteresis lower-limit
-					            gas_non_mod_llimit = num2;
-				 		        break;
-					   case 2:  // non-modulating gas valve: hysteresis upper-limit
-					            gas_non_mod_hlimit = num2;
-				 		        break;
-					   case 3:  // electrical heating: hysteresis lower-limit
-					            gas_mod_pwm_llimit = num2;
-				 		        break;
-					   case 4:  // electrical heating: hysteresis upper-limit
-					            gas_mod_pwm_hlimit = num2;
-				 		        break;
-					   default: break;
-				    } // switch
-					sprintf(s2,"ok%2d\n",rval);
-					xputs(s2);
-				 } // if				 
+					temp = atoi(&s[(num > 9) ? 3 : 2]); // convert to number
+					err  = set_parameter(num,temp);     // set parameter to a new value
+					if (err != NO_ERR) rval = err;
+					else
+					{
+						rval = 43 + num;
+						sprintf(s2,"ok%2d\n",rval);
+						xputs(s2);
+					} // else
+				 } // else
 	             break;
 
 	   case 'p': // Pump
@@ -327,9 +408,20 @@ uint8_t execute_rs232_command(char *s)
 							 print_ebrew_revision(); // print CVS revision number
 							 break;
 					 case 1: // List parameters
-							 sprintf(s2,"%01d,%3d,%3d,%3d,%3d\n",system_mode, 
+							 sprintf(s2,"%01d,%d,%d,%d,%d,%d,%d\n",system_mode, 
 					                    gas_non_mod_llimit, gas_non_mod_hlimit,
-					                    gas_mod_pwm_llimit, gas_mod_pwm_hlimit);
+					                    gas_mod_pwm_llimit, gas_mod_pwm_hlimit,
+										triac_llimit, triac_hlimit);
+							 xputs(s2); // print parameter values
+							 sprintf(s2,"VHLT: o=%d,m=%d,s=%d\n",
+							             vhlt_offset_10,vhlt_max_10,vhlt_slope_10); 
+							 xputs(s2); // print parameter values
+							 sprintf(s2,"VMLT: o=%d,m=%d,s=%d\n",
+							             vmlt_offset_10,vmlt_max_10,vmlt_slope_10); 
+							 xputs(s2); // print parameter values
+							 sprintf(s2,"THLT/TMLT: o=%d,s=%d,o=%d,s=%d\n",
+									     thlt_offset_16,thlt_slope_16,
+										 tmlt_offset_16,tmlt_slope_16);
 							 xputs(s2); // print parameter values
 							 break;
 					 case 2: // List all I2C devices

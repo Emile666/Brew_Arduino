@@ -23,6 +23,11 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.4  2013/07/20 14:51:59  Emile
+// - LM35, THLT and TMLT tasks are now working
+// - Max. duration added to scheduler
+// - slope_limiter & lm92_read() now work with uint16_t instead of float
+//
 // Revision 1.3  2013/07/19 10:51:01  Emile
 // - I2C frequency 50 50 kHz to get 2nd LM92 working
 // - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
@@ -52,41 +57,58 @@ uint8_t  gas_non_mod_hlimit = 35; // Hysteresis upper-limit parameter
 //                                   the HEATER LED and HEATER TRIAC is switched on.
 //                                   The TRIAC is needed to energize the gas-valve.
 //---------------------------------------------------------------------------------
-uint8_t  gas_mod_pwm_llimit = 4;  // Modulating gas-valve Hysteresis lower-limit parameter
-uint8_t  gas_mod_pwm_hlimit = 6;  // Modulating gas-valve Hysteresis upper-limit parameter
+uint8_t  gas_mod_pwm_llimit = 2;  // Modulating gas-valve Hysteresis lower-limit parameter
+uint8_t  gas_mod_pwm_hlimit = 4;  // Modulating gas-valve Hysteresis upper-limit parameter
 
 uint8_t  tmr_on_val    = 0;         // ON-timer value  for PWM to Time-Division signal
 uint8_t  tmr_off_val   = 0;         // OFF-timer value for PWM to Time-Division signal
-uint8_t  triac_llimit  = 60;        // Hysteresis lower-limit for triac_too_hot signal
-uint8_t  triac_hlimit  = 70;	    // Hysteresis upper-limit for triac_too_hot signal
-uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
 
 //-----------------------------------
 // LM35 parameters and variables
 //-----------------------------------
 ma       lm35_ma;                   // struct for LM35 moving_average filter
-uint8_t  lm35_temp;                 // LM35 Temperature in °C
-uint16_t lm35_frac;                 // LM35 Temperature fraction part in E-2 °C
+uint16_t lm35_temp;                 // LM35 Temperature in E-2 °C
+uint16_t triac_llimit  = 6500;      // Hysteresis lower-limit for triac_too_hot in E-2 °C
+uint16_t triac_hlimit  = 7500;	    // Hysteresis upper-limit for triac_too_hot in E-2 °C
+uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
+
+//-----------------------------------
+// VHLT parameters and variables
+//-----------------------------------
+ma       vhlt_ma;                   // struct for VHLT moving_average filter
+uint16_t vhlt_old_10;               // Previous value of vhlt_10
+uint16_t vhlt_10;                   // VHLT Volume in E-1 L
+int16_t  vhlt_offset_10 = 80;       // VHLT offset-correction in E-1 L
+uint16_t vhlt_max_10    = 1100;     // VHLT MAX Volume in E-1 L
+int16_t  vhlt_slope_10  = 10;       // VHLT slope-limiter is 1 L/sec.
+
+//-----------------------------------
+// VMLT parameters and variables
+//-----------------------------------
+ma       vmlt_ma;                   // struct for VMLT moving_average filter
+uint16_t vmlt_old_10;               // Previous value of vmlt_10
+uint16_t vmlt_10;                   // VMLT Volume in E-1 L
+int16_t  vmlt_offset_10 = 80;       // VMLT offset-correction in E-1 L
+uint16_t vmlt_max_10    = 1100;     // VMLT MAX Volume in E-1 L
+int16_t  vmlt_slope_10  = 10;       // VMLT slope-limiter is 1 L/sec.
 
 //-----------------------------------
 // THLT parameters and variables
 //-----------------------------------
-ma       thlt_ma;                 // struct for THLT moving_average filter
-int16_t  thlt_old_16;             // Previous value of thlt_temp
-int16_t  thlt_unf_16;			  // THLT Temperature unfiltered in °C * 16 
-int16_t  thlt_temp_16;            // THLT Temperature in °C * 16
-int16_t  thlt_offset_16 = 0;      // THLT offset-correction in °C * 16
-int16_t  thlt_slope_16  = 32;     // THLT slope-limiter is 2 °C/sec. * 16
+ma       thlt_ma;                   // struct for THLT moving_average filter
+int16_t  thlt_old_16;               // Previous value of thlt_temp_16
+int16_t  thlt_temp_16;              // THLT Temperature in °C * 16
+int16_t  thlt_offset_16 = 0;        // THLT offset-correction in °C * 16
+int16_t  thlt_slope_16  = 32;       // THLT slope-limiter is 2 °C/sec. * 16
  
 //-----------------------------------
 // TMLT parameters and variables
 //-----------------------------------
-ma       tmlt_ma;                 // struct for TMLT moving_average filter
-int16_t  tmlt_old_16;             // Previous value of tmlt_temp
-int16_t  tmlt_unf_16;			  // TMLT Temperature unfiltered in °C * 16
-int16_t  tmlt_temp_16;            // TMLT Temperature in °C * 16
-int16_t  tmlt_offset_16 = 0;      // TMLT offset-correction in °C * 16
-int16_t  tmlt_slope_16  = 32;     // TMLT slope-limiter is 2 °C/sec. * 16
+ma       tmlt_ma;                   // struct for TMLT moving_average filter
+int16_t  tmlt_old_16;               // Previous value of tmlt_temp
+int16_t  tmlt_temp_16;              // TMLT Temperature in °C * 16
+int16_t  tmlt_offset_16 = 16;       // TMLT offset-correction in °C * 16
+int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
 
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
@@ -212,8 +234,8 @@ void pwm_2_time(void)
              the LM35 temperature sensor. This sensor is connected
 			 to ADC0. The LM35 outputs 10 mV/°C ; VREF=1.1 V,
 			 therefore => Max. Temp. = 11000 E-2 °C
-			 Conversion constant = 110 / 1023 = 10/93
-  Variables: lm35_temp    : contains temperature in °C
+			 Conversion constant = 11000 / 1023 = 1000/93
+  Variables: lm35_temp    : contains temperature in E-2 °C
 			 lm35_frac    : contains fractional temperature in E-2 °C
 			 lm35_ma      : moving-average filter struct for lm35_temp
 			 triac_llimit : lower limit (hysteresis) for triac_too_hot
@@ -223,13 +245,11 @@ void pwm_2_time(void)
   --------------------------------------------------------------------*/
 void lm35_task(void)
 {
-    uint16_t tmp2; // temporary variable
+    uint16_t tmp; // temporary variable
 	
-	tmp2      = adc_read(LM35);
-	tmp2      = moving_average(&lm35_ma,tmp2);
-	lm35_temp = (uint8_t)(tmp2 * 10 / 93);
-	tmp2     -= (uint16_t)lm35_temp * 93 / 10;
-	lm35_frac = (tmp2 * 1000 / 93); // (10/93)*100
+	tmp       = adc_read(LM35);
+	tmp       = (uint16_t)((unsigned long)tmp * 1000 / 93);
+	lm35_temp = moving_average(&lm35_ma, tmp);
 	if (triac_too_hot)
 	{  // reset hysteresis if temp < lower limit
 		triac_too_hot = (lm35_temp >= triac_llimit);	
@@ -241,6 +261,69 @@ void lm35_task(void)
 } // lm35_task()
 
 /*--------------------------------------------------------------------
+  Information about Volume Measurements (vhlt_task() & vmlt_task())
+
+  The volume is measured by a MPX2010 pressure sensor that is 
+  connected to an AD-channel of the ATmega328
+  
+  The MPX2010 delivers 25 mV at 1.45 psi = 10 kPa = 101.978 cm H2O.
+
+  The MPX2010 signal is amplified by an AD620 PGA with A=184 (Rg=270R).
+  The results in a full-scale span of 2.26 Volts @ 50 cm H2O.
+  TO-DO: adjust the gain of the AD620:
+	     60 cm H2O => 1.1 Volt: A = 1.1/(60*0.025/101.978)
+	     A = 74.8 ; Rg = 680 Ohms (A=73.6)
+  --------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------
+  Purpose  : This is the task that processes the HLT volume. 
+             The HLT volume is measured by the MPX2010 pressure sensor
+			 that is connected to ADC channel 1.
+  Variables: vhlt_ma       : struct for VHLT moving_average filter
+             vhlt_old_10   : Previous value of vhlt_10
+             vhlt_10       : VHLT Volume in E-1 L
+             vhlt_offset_10: VHLT offset-correction in E-1 L
+             vhlt_max_10   : VHLT MAX Volume in E-1 L
+             vhlt_slope_10 : VHLT slope-limiter is 1 L/sec.
+  Returns  : -
+  --------------------------------------------------------------------*/
+void vhlt_task(void)
+{
+    uint16_t tmp; // temporary variable
+	
+	vhlt_old_10 = vhlt_10; // copy previous value of vhlt
+	tmp         = adc_read(VHLT);
+	tmp        *= (uint16_t)((unsigned long)vhlt_max_10 * tmp / 1023);
+	tmp        += vhlt_offset_10;
+	slope_limiter(vhlt_slope_10, vhlt_old_10, &tmp);
+	vhlt_10   = moving_average(&vhlt_ma,tmp);
+} // vhlt_task()
+
+/*--------------------------------------------------------------------
+  Purpose  : This is the task that processes the MLT volume. 
+             The MLT volume is measured by the MPX2010 pressure sensor
+			 that is connected to ADC channel 2.
+  Variables: vmlt_ma       : struct for VMLT moving_average filter
+             vmlt_old_10   : Previous value of vmlt_10
+             vmlt_10       : VMLT Volume in E-1 L
+             vmlt_offset_10: VMLT offset-correction in E-1 L
+             vmlt_max_10   : VMLT MAX Volume in E-1 L
+             vmlt_slope_10 : VMLT slope-limiter is 1 L/sec.
+  Returns  : -
+  --------------------------------------------------------------------*/
+void vmlt_task(void)
+{
+    uint16_t tmp; // temporary variable
+	
+	vmlt_old_10 = vmlt_10; // copy previous value of vmlt
+	tmp         = adc_read(VMLT);
+	tmp        *= (uint16_t)((unsigned long)vmlt_max_10 * tmp / 1023);
+	tmp        += vmlt_offset_10;
+	slope_limiter(vmlt_slope_10, vmlt_old_10, &tmp);
+	vmlt_10   = moving_average(&vmlt_ma,tmp);
+} // vmlt_task()
+
+/*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperature from
              the LM92 temperature sensor. Since the LM92 has 4
 			 fractional bits (1/2, 1/4, 1/8, 1/16), all values are
@@ -248,7 +331,6 @@ void lm35_task(void)
 			 format have the extension _16.
 			 The HLT temperature is both filtered and slope-limited.
   Variables: thlt_old_16   : previous value of thlt_temp_16
-			 thlt_unf_16   : the 'raw' temperature in °C
 			 thlt_offset_16: the correction in temperature in °C
 			 thlt_ma       : the moving-average filter struct for THLT
 			 thlt_temp_16  : the processed HLT temperature in °C
@@ -256,16 +338,17 @@ void lm35_task(void)
   --------------------------------------------------------------------*/
 void thlt_task(void)
 {
-	uint8_t err;
+	uint8_t  err; // error return value
+	uint16_t tmp; // temporary variable (signed Q8.4 format)
 	
 	thlt_old_16 = thlt_temp_16; // copy previous value of thlt_temp
-	thlt_unf_16 = lm92_read16(THLT, &err);
-	if (err) thlt_unf_16 = 0;
+	tmp         = lm92_read(THLT, &err); // returns a signed Q8.4 format
+	if (err) tmp = 0;
 	else
 	{	
-		thlt_unf_16 += thlt_offset_16;
-		slope_limiter(thlt_slope_16, thlt_old_16, &thlt_unf_16);
-		thlt_temp_16 = moving_average(&thlt_ma, thlt_unf_16);
+		tmp += thlt_offset_16;
+		slope_limiter(thlt_slope_16, thlt_old_16, &tmp);
+		thlt_temp_16 = moving_average(&thlt_ma, tmp);
 	} // else
 } // thlt_task()
 
@@ -277,7 +360,6 @@ void thlt_task(void)
 			 format have the extension _16.
 			 The MLT temperature is both filtered and slope-limited.
   Variables: tmlt_old_16   : previous value of tmlt_temp_16
-			 tmlt_unf_16   : the 'raw' temperature in °C
 			 tmlt_offset_16: the correction in temperature in °C
 			 tmlt_ma       : the moving-average filter struct for TMLT
 			 tmlt_temp_16  : the processed MLT temperature in °C
@@ -285,16 +367,17 @@ void thlt_task(void)
   --------------------------------------------------------------------*/
 void tmlt_task(void)
 {
-	uint8_t err;
+	uint8_t  err; // error return value
+	uint16_t tmp; // temporary variable (signed Q8.4 format)
 	
 	tmlt_old_16 = tmlt_temp_16; // copy previous value of tmlt_temp
-	tmlt_unf_16 = lm92_read16(TMLT, &err);
-	if (err) tmlt_unf_16 = 0;
+	tmp         = lm92_read(TMLT, &err); // returns a signed Q8.4 format
+	if (err) tmp = 0;
 	else
 	{	
-		tmlt_unf_16 += tmlt_offset_16;
-		slope_limiter(tmlt_slope_16, tmlt_old_16, &tmlt_unf_16);
-		tmlt_temp_16 = moving_average(&tmlt_ma, tmlt_unf_16);
+		tmp += tmlt_offset_16;
+		slope_limiter(tmlt_slope_16, tmlt_old_16, &tmp);
+		tmlt_temp_16 = moving_average(&tmlt_ma, tmp);
 	} // else
 } // tmlt_task()
 
@@ -331,8 +414,8 @@ void print_ebrew_revision(void)
 	uint8_t len;
 	
 	xputs("E-Brew V2.0 rev.");  // welcome message, assure that all is well!
-	len = strlen(ebrew_revision) - 12;  // just get the rev. number
-	strncpy(s,&ebrew_revision[10],len); // example: " 1.3"
+	len = strlen(ebrew_revision) - 13;  // just get the rev. number
+	strncpy(s,&ebrew_revision[11],len); // example: " 1.3"
 	s[len]   = '\n';
 	s[len+1] = '\0';
 	xputs(s);
@@ -350,9 +433,11 @@ int main(void)
 	adc_init();       // Init. internal 10-bits AD-Converter
 	pwm_init();       // Init. PWM function
 	pwm_write(0);	  // Start with 0 % duty-cycle
-	init_moving_average(&lm35_ma,10,20); // Init. LM35 MA10-filter with 20 °C
-	init_moving_average(&thlt_ma,10,20); // Init. THLT MA10-filter with 20 °C
-	init_moving_average(&tmlt_ma,10,20); // Init. TMLT MA10-filter with 20 °C
+	init_moving_average(&lm35_ma,10,2000); // Init. LM35 MA10-filter with 20 °C
+	init_moving_average(&vhlt_ma, 5,  80); // Init. VHLT MA5-filter with 8 L
+	init_moving_average(&vmlt_ma, 5,  80); // Init. VMLT MA5-filter with 8 L
+	init_moving_average(&thlt_ma,10, 320); // Init. THLT MA10-filter with 20 °C
+	init_moving_average(&tmlt_ma,10, 320); // Init. TMLT MA10-filter with 20 °C
 	
 	//------------------------------------------------------
 	// PD2..PD4: LEDs ; PD5..PD7: Digital switching outputs
@@ -370,8 +455,10 @@ int main(void)
 	add_task(toggle_led_task ,"led_blink" , 10,  500); // Toggle led every 500 msec.
 	add_task(pwm_2_time      ,"pwm_2_time", 30,   50); // Electrical Heating PWM every 50 msec.
 	add_task(lm35_task       ,"lm35_task" , 50, 1000); // Process Temperature from LM35 sensor
-	add_task(thlt_task       ,"thlt_task" , 70, 1000); // Process Temperature from THLT sensor
-	add_task(tmlt_task       ,"tmlt_task" , 90, 1000); // Process Temperature from TMLT sensor
+	add_task(vhlt_task       ,"vhlt_task" , 70, 1000); // Process Volume from VHLT sensor
+	add_task(vmlt_task       ,"vmlt_task" , 90, 1000); // Process Volume from VMLT sensor
+	add_task(thlt_task       ,"thlt_task" ,110, 1000); // Process Temperature from THLT sensor
+	add_task(tmlt_task       ,"tmlt_task" ,130, 1000); // Process Temperature from TMLT sensor
 	
 	sei(); // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(); // print revision number

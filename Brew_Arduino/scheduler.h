@@ -7,6 +7,11 @@
   Purpose : This is the header-file for scheduler.c
   ------------------------------------------------------------------
   $Log$
+  Revision 1.2  2013/07/20 14:52:00  Emile
+  - LM35, THLT and TMLT tasks are now working
+  - Max. duration added to scheduler
+  - slope_limiter & lm92_read() now work with uint16_t instead of float
+
   Revision 1.1  2013/07/19 10:51:02  Emile
   - I2C frequency 50 50 kHz to get 2nd LM92 working
   - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
@@ -24,7 +29,7 @@
 #include "usart.h"
 #include "pwm.h"
 
-#define MAX_TASKS	  (10)
+#define MAX_TASKS	  (8)
 #define MAX_MSEC      (60000)
 #define TICKS_PER_SEC (1000L)
 #define NAME_LEN      (15) 
