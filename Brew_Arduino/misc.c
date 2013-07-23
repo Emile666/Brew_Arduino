@@ -4,6 +4,13 @@
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.3  2013/07/21 13:10:44  Emile
+// - Reading & Writing of 17 parameters now fully works with set_parameter()
+// - VHLT and VMLT tasks added
+// - Scheduler: actual & max. times now printed in msec. instead of usec.
+// - THLT and TMLT now in E-2 Celsius for PC program
+// - All lm92 test routines removed, only one lm92_read() remaining
+//
 // Revision 1.2  2013/07/20 14:51:59  Emile
 // - LM35, THLT and TMLT tasks are now working
 // - Max. duration added to scheduler
@@ -15,7 +22,7 @@
 //-----------------------------------------------------------------------------
 #include "misc.h"
 
-void init_moving_average(ma *p, uint8_t N, uint16_t init_val)
+void init_moving_average(ma *p, uint8_t N, int16_t init_val)
 /*------------------------------------------------------------------
   Purpose  : This function initializes the Moving Average (MA) struct
              that is used in the moving_average() function
@@ -38,7 +45,7 @@ void init_moving_average(ma *p, uint8_t N, uint16_t init_val)
    } // for
 } // init_moving_average()
 
-uint16_t moving_average(ma *p, uint16_t x)
+int16_t moving_average(ma *p, int16_t x)
 /*------------------------------------------------------------------
   Purpose  : This function calculates the Moving Average (MA) of the
              input signal x. An MA filter of order N is a low-pass
@@ -47,7 +54,7 @@ uint16_t moving_average(ma *p, uint16_t x)
                                  -1         -(N-1)
              Y[z] = X[z] . (1 + z  + ... + Z      )
 
-             Initialisation: p->N must have a value.
+             Initialization: p->N must have a value.
                              p->sum and p->index should be init. to 0.
   Variables:
         *p : Pointer to the ma struct (specify a new struct for every
@@ -56,10 +63,10 @@ uint16_t moving_average(ma *p, uint16_t x)
   Returns  : Filter output value
   ------------------------------------------------------------------*/
 {
-   p->sum -= p->T[p->index];  // subtract value to overwrite from running sum
-   p->T[p->index] = x / p->N; // store new value in array
-   p->sum += p->T[p->index];  // update running sum with new value
-   if (++(p->index) >= p->N)  // update index in cyclic array
+   p->sum -= p->T[p->index];                // subtract value from running sum
+   p->T[p->index] = (x + (p->N>>1)) / p->N; // store new value in array
+   p->sum += p->T[p->index];                // update running sum with new value
+   if (++(p->index) >= p->N)                // update index in cyclic array
    {
       p->index = 0; // restore to 1st position
    } // if
@@ -68,7 +75,7 @@ uint16_t moving_average(ma *p, uint16_t x)
 
 void init_sample_delay(ma *p, int TD)
 /*------------------------------------------------------------------
-  Purpose  : This function initialises the sample delay function.
+  Purpose  : This function initializes the sample delay function.
              This function uses the same struct as the moving_average()
              function uses (the MA struct).
   Variables:
@@ -120,7 +127,7 @@ double sample_delay(ma *p, double x)
    return xn;      // return value = x[k-N]
 } // sample_delay()
 
-void slope_limiter(const uint16_t lim, const uint16_t Told, uint16_t *Tnew)
+void slope_limiter(const int16_t lim, const int16_t Told, int16_t *Tnew)
 /*------------------------------------------------------------------
   Purpose  : This function limits the increase of Tnew by lim.
 
@@ -138,7 +145,7 @@ void slope_limiter(const uint16_t lim, const uint16_t Told, uint16_t *Tnew)
   Returns  : none
   ------------------------------------------------------------------*/
 {
-   uint16_t diff = *Tnew - Told; // calculate difference
+   int16_t diff = *Tnew - Told; // calculate difference
 
    if      (diff > lim)  *Tnew =  Told + lim;
    else if (diff < -lim) *Tnew =  Told - lim;

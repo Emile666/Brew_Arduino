@@ -4,6 +4,13 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.6  2013/07/21 13:10:43  Emile
+// - Reading & Writing of 17 parameters now fully works with set_parameter()
+// - VHLT and VMLT tasks added
+// - Scheduler: actual & max. times now printed in msec. instead of usec.
+// - THLT and TMLT now in E-2 Celsius for PC program
+// - All lm92 test routines removed, only one lm92_read() remaining
+//
 // Revision 1.5  2013/07/20 14:51:59  Emile
 // - LM35, THLT and TMLT tasks are now working
 // - Max. duration added to scheduler
@@ -270,6 +277,7 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 				break;
 		default: break;
 	} // switch
+	return rval;
 } // set_parameter()
 
 /*-----------------------------------------------------------------------------

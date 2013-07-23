@@ -23,6 +23,13 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.5  2013/07/21 13:10:43  Emile
+// - Reading & Writing of 17 parameters now fully works with set_parameter()
+// - VHLT and VMLT tasks added
+// - Scheduler: actual & max. times now printed in msec. instead of usec.
+// - THLT and TMLT now in E-2 Celsius for PC program
+// - All lm92 test routines removed, only one lm92_read() remaining
+//
 // Revision 1.4  2013/07/20 14:51:59  Emile
 // - LM35, THLT and TMLT tasks are now working
 // - Max. duration added to scheduler
@@ -245,7 +252,7 @@ void pwm_2_time(void)
   --------------------------------------------------------------------*/
 void lm35_task(void)
 {
-    uint16_t tmp; // temporary variable
+    int16_t tmp; // temporary variable
 	
 	tmp       = adc_read(LM35);
 	tmp       = (uint16_t)((unsigned long)tmp * 1000 / 93);
@@ -289,11 +296,11 @@ void lm35_task(void)
   --------------------------------------------------------------------*/
 void vhlt_task(void)
 {
-    uint16_t tmp; // temporary variable
+    int16_t tmp; // temporary variable
 	
 	vhlt_old_10 = vhlt_10; // copy previous value of vhlt
 	tmp         = adc_read(VHLT);
-	tmp        *= (uint16_t)((unsigned long)vhlt_max_10 * tmp / 1023);
+	tmp         = (uint16_t)((unsigned long)vhlt_max_10 * tmp / 1023);
 	tmp        += vhlt_offset_10;
 	slope_limiter(vhlt_slope_10, vhlt_old_10, &tmp);
 	vhlt_10   = moving_average(&vhlt_ma,tmp);
@@ -313,11 +320,11 @@ void vhlt_task(void)
   --------------------------------------------------------------------*/
 void vmlt_task(void)
 {
-    uint16_t tmp; // temporary variable
+    int16_t tmp; // temporary variable
 	
 	vmlt_old_10 = vmlt_10; // copy previous value of vmlt
 	tmp         = adc_read(VMLT);
-	tmp        *= (uint16_t)((unsigned long)vmlt_max_10 * tmp / 1023);
+	tmp         = (uint16_t)((unsigned long)vmlt_max_10 * tmp / 1023);
 	tmp        += vmlt_offset_10;
 	slope_limiter(vmlt_slope_10, vmlt_old_10, &tmp);
 	vmlt_10   = moving_average(&vmlt_ma,tmp);
@@ -339,7 +346,7 @@ void vmlt_task(void)
 void thlt_task(void)
 {
 	uint8_t  err; // error return value
-	uint16_t tmp; // temporary variable (signed Q8.4 format)
+	int16_t  tmp; // temporary variable (signed Q8.4 format)
 	
 	thlt_old_16 = thlt_temp_16; // copy previous value of thlt_temp
 	tmp         = lm92_read(THLT, &err); // returns a signed Q8.4 format
@@ -367,8 +374,8 @@ void thlt_task(void)
   --------------------------------------------------------------------*/
 void tmlt_task(void)
 {
-	uint8_t  err; // error return value
-	uint16_t tmp; // temporary variable (signed Q8.4 format)
+	uint8_t err; // error return value
+	int16_t tmp; // temporary variable (signed Q8.4 format)
 	
 	tmlt_old_16 = tmlt_temp_16; // copy previous value of tmlt_temp
 	tmp         = lm92_read(TMLT, &err); // returns a signed Q8.4 format
@@ -433,11 +440,17 @@ int main(void)
 	adc_init();       // Init. internal 10-bits AD-Converter
 	pwm_init();       // Init. PWM function
 	pwm_write(0);	  // Start with 0 % duty-cycle
-	init_moving_average(&lm35_ma,10,2000); // Init. LM35 MA10-filter with 20 °C
-	init_moving_average(&vhlt_ma, 5,  80); // Init. VHLT MA5-filter with 8 L
-	init_moving_average(&vmlt_ma, 5,  80); // Init. VMLT MA5-filter with 8 L
-	init_moving_average(&thlt_ma,10, 320); // Init. THLT MA10-filter with 20 °C
-	init_moving_average(&tmlt_ma,10, 320); // Init. TMLT MA10-filter with 20 °C
+	
+	init_moving_average(&lm35_ma,10, INIT_TEMP * 100); // Init. MA10-filter with 20 °C
+	init_moving_average(&vhlt_ma, 5, INIT_VOL  *  10); // Init. MA5-filter with 8 L
+	init_moving_average(&vmlt_ma, 5, INIT_VOL  *  10); // Init. VMLT MA5-filter with 8 L
+	init_moving_average(&thlt_ma,10, INIT_TEMP << 4);  // Init. MA10-filter with 20 °C
+	init_moving_average(&tmlt_ma,10, INIT_TEMP << 4);  // Init. MA10-filter with 20 °C
+	lm35_temp    = INIT_TEMP * 100;
+	vhlt_10      = INIT_VOL  *  10;
+	vmlt_10      = INIT_VOL  *  10;
+	thlt_temp_16 = INIT_TEMP << 4;
+	tmlt_temp_16 = INIT_TEMP << 4;
 	
 	//------------------------------------------------------
 	// PD2..PD4: LEDs ; PD5..PD7: Digital switching outputs

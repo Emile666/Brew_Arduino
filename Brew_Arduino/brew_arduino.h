@@ -58,6 +58,9 @@
 #define EL_HTR_OFF (1)
 #define EL_HTR_ON  (2)
 
+#define INIT_TEMP  (20)
+#define INIT_VOL    (8)
+
 void print_ebrew_revision(void);
 
 #endif /* _BREW_ARDUINO_H_ */
