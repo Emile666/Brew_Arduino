@@ -23,6 +23,9 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.6  2013/07/23 19:33:17  Emile
+// - Bug-fix slope-limiter function. Tested on all measurements.
+//
 // Revision 1.5  2013/07/21 13:10:43  Emile
 // - Reading & Writing of 17 parameters now fully works with set_parameter()
 // - VHLT and VMLT tasks added
@@ -49,7 +52,7 @@
 
 // Global variables
 const char *ebrew_revision = "$Revision$"; // ebrew CVS revision number
-uint8_t    system_mode     = GAS_MODULATING;   // Default to Modulating Gas-valve
+uint8_t    system_mode     = GAS_MODULATING;     // Default to Modulating Gas-valve
 
 //---------------------------------------------------------------------------------
 // system_mode == GAS_NON_MODULATING: a hysteresis block is used to determine when

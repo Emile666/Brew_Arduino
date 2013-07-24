@@ -4,6 +4,9 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.7  2013/07/23 19:33:18  Emile
+// - Bug-fix slope-limiter function. Tested on all measurements.
+//
 // Revision 1.6  2013/07/21 13:10:43  Emile
 // - Reading & Writing of 17 parameters now fully works with set_parameter()
 // - VHLT and VMLT tasks added
@@ -103,7 +106,7 @@ void i2c_scan(uint8_t ch)
 		} // if
 		i2c_stop();
 	} // for
-	if (!x) xputs("no devices detected");
+	if (!x) xputs("none");
 	xputs("\n");
 } // i2c_scan()
 
@@ -416,18 +419,18 @@ uint8_t execute_rs232_command(char *s)
 							 print_ebrew_revision(); // print CVS revision number
 							 break;
 					 case 1: // List parameters
-							 sprintf(s2,"%01d,%d,%d,%d,%d,%d,%d\n",system_mode, 
+							 sprintf(s2,"SYS:%01d,%d,%d,%d,%d,%d,%d\n",system_mode, 
 					                    gas_non_mod_llimit, gas_non_mod_hlimit,
 					                    gas_mod_pwm_llimit, gas_mod_pwm_hlimit,
 										triac_llimit, triac_hlimit);
 							 xputs(s2); // print parameter values
-							 sprintf(s2,"VHLT: o=%d,m=%d,s=%d\n",
+							 sprintf(s2,"VHLT:o=%d,m=%d,s=%d\n",
 							             vhlt_offset_10,vhlt_max_10,vhlt_slope_10); 
 							 xputs(s2); // print parameter values
-							 sprintf(s2,"VMLT: o=%d,m=%d,s=%d\n",
+							 sprintf(s2,"VMLT:o=%d,m=%d,s=%d\n",
 							             vmlt_offset_10,vmlt_max_10,vmlt_slope_10); 
 							 xputs(s2); // print parameter values
-							 sprintf(s2,"THLT/TMLT: o=%d,s=%d,o=%d,s=%d\n",
+							 sprintf(s2,"TxLT:o=%d,s=%d,o=%d,s=%d\n",
 									     thlt_offset_16,thlt_slope_16,
 										 tmlt_offset_16,tmlt_slope_16);
 							 xputs(s2); // print parameter values

@@ -4,6 +4,9 @@
 // File   : usart.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.2  2013/06/23 09:08:51  Emile
+// - Headers added to files
+//
 //
 //-----------------------------------------------------------------------------
 #include "usart.h"
@@ -53,7 +56,7 @@ void xputc(unsigned char ch)
 {                       /* Write Character to Serial Port */
   if (ch == '\n')       /* Check for LF */
   {                            
-    usart_putc('\r');  /* Output CR */
+    //usart_putc('\r');  /* Output CR */
   }
   usart_putc(ch); /* Transmit Character */
 } // xputc()

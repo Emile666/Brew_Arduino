@@ -10,6 +10,13 @@
             executing tasks in a cooperative (non pre-emptive) way.
   ------------------------------------------------------------------
   $Log$
+  Revision 1.3  2013/07/21 13:10:44  Emile
+  - Reading & Writing of 17 parameters now fully works with set_parameter()
+  - VHLT and VMLT tasks added
+  - Scheduler: actual & max. times now printed in msec. instead of usec.
+  - THLT and TMLT now in E-2 Celsius for PC program
+  - All lm92 test routines removed, only one lm92_read() remaining
+
   Revision 1.2  2013/07/20 14:52:00  Emile
   - LM35, THLT and TMLT tasks are now working
   - Max. duration added to scheduler
@@ -233,8 +240,8 @@ void list_all_tasks(void)
 	uint8_t t1,t2,t3,t4;
 	char    s[50];
 	
-	xputs("Task-Name      T(ms) Stat T(ms) M(ms)\n");
-	xputs("-------------------------------------\n");
+	xputs("Task-Name   T(ms) Stat T(ms) M(ms)\n");
+	//xputs("----------------------------------\n");
 	//go through the active tasks
 	if(task_list[index].Period != 0)
 	{
@@ -244,7 +251,7 @@ void list_all_tasks(void)
 			t2 = (task_list[index].Duration - t1 * CLOCKTICKS_PER_MSEC) * CLOCKTICKS_E_2_MSEC;
 			t3 =  task_list[index].Duration_Max / CLOCKTICKS_PER_MSEC;
 			t4 = (task_list[index].Duration_Max - t3 * CLOCKTICKS_PER_MSEC) * CLOCKTICKS_E_2_MSEC;
-			sprintf(s,"%-14s %5d 0x%02x %2d.%02d %2d.%02d\n", task_list[index].Name,
+			sprintf(s,"%-11s %5d 0x%02x %2d.%02d %2d.%02d\n", task_list[index].Name,
 			        task_list[index].Period,task_list[index].Status, t1, t2, t3, t4);
 			xputs(s);
 			index++;
