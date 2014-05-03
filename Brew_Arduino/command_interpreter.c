@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.8  2013/07/24 13:46:40  Emile
+// - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
+// - Version ready for Integration Testing with PC program!
+//
 // Revision 1.7  2013/07/23 19:33:18  Emile
 // - Bug-fix slope-limiter function. Tested on all measurements.
 //
@@ -33,10 +37,13 @@
 #include <string.h>
 #include <ctype.h>
 #include <util/atomic.h>
+#include <stdio.h>
 #include "command_interpreter.h"
 #include "misc.h"
-#include "brew_arduino.h"
-#include <stdio.h>
+#include "Udp.h"
+
+extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed
+extern unsigned int localPort;   // local port to listen on 	
 
 extern uint8_t    system_mode;         // from Brew_Arduino.c
 extern const char *ebrew_revision;     // ebrew CVS revision number
@@ -78,36 +85,48 @@ uint8_t rs232_ptr = 0;                 // index in RS232 buffer
 
 /*-----------------------------------------------------------------------------
   Purpose  : Scan all devices on the I2C bus on all channels of the PCA9544
-  Variables: ch: the I2C channel number, 0 is the main channel
-  Returns  : -
+  Variables: 
+         ch: the I2C channel number, 0 is the main channel
+  rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
+ Returns  : -
   ---------------------------------------------------------------------------*/
-void i2c_scan(uint8_t ch)
+void i2c_scan(uint8_t ch, bool rs232_udp)
 {
 	char    s[50]; // needed for printing to serial terminal
 	uint8_t x = 0;
 	int     i;     // Leave this as an int!
-	enum i2c_acks retv;
+	const uint8_t none[] = "none";
 	
-	retv = i2c_select_channel(ch);
-	if (ch == PCA9544_NOCH)
-	sprintf(s,"I2C[-]: ");
-	else sprintf(s,"I2C[%1d]: ",ch-PCA9544_CH0);
-	xputs(s);
-	for (i = 0x00; i < 0xff; i+=2)
+	if (i2c_select_channel(ch) == I2C_NACK)
 	{
-		if (i2c_start(i) == I2C_ACK)
+		sprintf(s,"Could not open I2C[%d]\n",ch);
+	    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
+	} // if
+	else
+	{
+		if (ch == PCA9544_NOCH)
+		sprintf(s,"I2C[-]: ");
+		else sprintf(s,"I2C[%1d]: ",ch-PCA9544_CH0);
+	    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
+		for (i = 0x00; i < 0xff; i+=2)
 		{
-			if ((ch == PCA9544_NOCH) || ((ch != PCA9544_NOCH) && (i != PCA9544)))
+			if (i2c_start(i) == I2C_ACK)
 			{
-				sprintf(s,"0x%0x ",i);
-				xputs(s);
-				x++;
-			}
-		} // if
-		i2c_stop();
-	} // for
-	if (!x) xputs("none");
-	xputs("\n");
+				if ((ch == PCA9544_NOCH) || ((ch != PCA9544_NOCH) && (i != PCA9544)))
+				{
+					sprintf(s,"0x%0x ",i);
+		  		    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
+					x++;
+				} // if
+			} // if
+			i2c_stop();
+		} // for
+		if (!x) 
+		{
+		  	rs232_udp == RS232_USB ? xputs(none) : udp_write(none,strlen(none));
+		} // if			
+	  	rs232_udp == RS232_USB ? xputs("\n") : udp_write("\n",1);
+	} // else	
 } // i2c_scan()
 
 /*-----------------------------------------------------------------------------
@@ -205,10 +224,34 @@ uint8_t rs232_command_handler(void)
   if (cmd_rcvd)
   {
 	  cmd_rcvd = 0;
-	  return execute_rs232_command(rs232_inbuf);
+	  return execute_single_command(rs232_inbuf, RS232_USB);
   } // if
   else return NO_ERR;
 } // rs232_command_handler()
+
+/*-----------------------------------------------------------------------------
+  Purpose  : Non-blocking command-handler via the Ethernet UDP port
+  Variables: -
+  Returns  : [NO_ERR, ERR_CMD, ERR_NUM, ERR_I2C]
+  ---------------------------------------------------------------------------*/
+uint8_t ethernet_command_handler(char *s)
+{
+  uint8_t rval = NO_ERR;
+  char    *s1;
+  char    s2[20];
+  uint8_t i, cnt = 1;
+  
+  s1 = strtok(s,"\n"); // get the first command
+  while (s1 != NULL)
+  {   // walk through other commands
+	  for (i = 0; i < strlen(s1); i++) s1[i] = tolower(s1[i]);
+	  sprintf(s2,"eth%1d=[%s]\n",cnt++,s1); 
+	  xputs(s2);
+	  rval = execute_single_command(s1, ETHERNET_UDP);
+	  s1 = strtok(NULL, "\n");
+  } // while
+  return rval;
+} // ethernet_command_handler()
 
 /*-----------------------------------------------------------------------------
   Purpose  : Receive a value from the command-line and assign this value to 
@@ -307,7 +350,9 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 				    - Time-Division ON/OFF signal for Non-Modulating gas-valve (N0=1)
 				    - Time-Division ON/OFF signal for Electrical heating-element (N0=2)
    
-  Variables: s: the string that contains the command from RS232 serial port 0
+  Variables: 
+          s: the string that contains the command from RS232 serial port 0
+  rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
   Returns  : [NO_ERR, ERR_CMD, ERR_NUM, ERR_I2C] or ack. value for command
              cmd ack   cmd ack   cmd ack   cmd ack   cmd      ack
 			 A0  33     L0  38    N0  43    P0  47   W0..W100 52
@@ -316,7 +361,7 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 			 A3  36     M1  41    N3  46    S1  50    
 			 A4  37     M2  42
   ---------------------------------------------------------------------------*/
-uint8_t execute_rs232_command(char *s)
+uint8_t execute_single_command(char *s, bool rs232_udp)
 {
    uint8_t  num  = atoi(&s[1]); // convert number in command (until space is found)
    uint8_t  rval = NO_ERR, err;
@@ -326,6 +371,7 @@ uint8_t execute_rs232_command(char *s)
    switch (s[0])
    {
 	   case 'a': // Read analog (LM35, VHLT, VMLT) + digital (THLT, TMLT) values
+				 udp_beginPacketIP(remoteIP, localPort); // send response back
 			     rval = 33 + num;
 				 switch (num)
 				 {
@@ -360,7 +406,11 @@ uint8_t execute_rs232_command(char *s)
 					default: rval = ERR_NUM;
 					         break;
 				 } // switch
-				 xputs(s2);
+				 if (rval != ERR_NUM)
+				 {		 
+					rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+				 } // if
+				 udp_endPacket(); // send response
 			     break;
 
 	   case 'l': // ALIVE-Led
@@ -370,14 +420,14 @@ uint8_t execute_rs232_command(char *s)
 					 rval = 38 + num;
 					 if (num) PORTD |=  ALIVE_LED;
 					 else     PORTD &= ~ALIVE_LED;
-					 sprintf(s2,"ok%2d\n",rval);
-					 xputs(s2);
+					 //sprintf(s2,"ok%2d\n",rval);
+					 //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 				 } // else
 				 break;
 
 	   case 'n': // Set parameters / variables to a new value
-				 if (((num >  9) && ((s[3] != ' ') || (strlen(s) < 5)) ||
-				     ((num < 10) && ((s[2] != ' ') || (strlen(s) < 4)))))
+				 if (((num >  9) && ((s[3] != ' ') || (strlen(s) < 5))) ||
+				     ((num < 10) && ((s[2] != ' ') || (strlen(s) < 4))))
 				 {  // check for error in command: 'nx yy' or 'nxx yy'
 					rval = ERR_CMD; 
 				 } // if				 
@@ -393,8 +443,8 @@ uint8_t execute_rs232_command(char *s)
 					else
 					{
 						rval = 43 + num;
-						sprintf(s2,"ok%2d\n",rval);
-						xputs(s2);
+						//sprintf(s2,"ok%2d\n",rval);
+					    //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 					} // else
 				 } // else
 	             break;
@@ -406,48 +456,51 @@ uint8_t execute_rs232_command(char *s)
 				 {
 					 if (num == 0) PORTD &= ~(PUMP | PUMP_LED);
 					 else          PORTD |=  (PUMP | PUMP_LED);
-					 sprintf(s2,"ok%2d\n",rval);
-					 xputs(s2);
-				 }				 
+					 //sprintf(s2,"ok%2d\n",rval);
+					 //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+				 } // else				 
 	             break;
 
 	   case 's': // System commands
+				 udp_beginPacketIP(remoteIP, localPort); // send response back
 	             rval = 49 + num;
 				 switch (num)
 				 {
 					 case 0: // Ebrew revision
-							 print_ebrew_revision(); // print CVS revision number
+							 print_ebrew_revision(s2); // print CVS revision number
+				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 break;
 					 case 1: // List parameters
 							 sprintf(s2,"SYS:%01d,%d,%d,%d,%d,%d,%d\n",system_mode, 
 					                    gas_non_mod_llimit, gas_non_mod_hlimit,
 					                    gas_mod_pwm_llimit, gas_mod_pwm_hlimit,
 										triac_llimit, triac_hlimit);
-							 xputs(s2); // print parameter values
+				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 sprintf(s2,"VHLT:o=%d,m=%d,s=%d\n",
 							             vhlt_offset_10,vhlt_max_10,vhlt_slope_10); 
-							 xputs(s2); // print parameter values
+				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 sprintf(s2,"VMLT:o=%d,m=%d,s=%d\n",
 							             vmlt_offset_10,vmlt_max_10,vmlt_slope_10); 
-							 xputs(s2); // print parameter values
+				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 sprintf(s2,"TxLT:o=%d,s=%d,o=%d,s=%d\n",
 									     thlt_offset_16,thlt_slope_16,
 										 tmlt_offset_16,tmlt_slope_16);
-							 xputs(s2); // print parameter values
+				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 break;
 					 case 2: // List all I2C devices
-					         i2c_scan(PCA9544_NOCH); // Start with main I2C channel
-					         i2c_scan(PCA9544_CH0);  // PCA9544 channel 0
-					         i2c_scan(PCA9544_CH1);  // PCA9544 channel 1
-					         i2c_scan(PCA9544_CH2);  // PCA9544 channel 2
-					         i2c_scan(PCA9544_CH3);  // PCA9544 channel 3
+					         i2c_scan(PCA9544_NOCH, rs232_udp); // Start with main I2C channel
+					         i2c_scan(PCA9544_CH0 , rs232_udp);  // PCA9544 channel 0
+					         i2c_scan(PCA9544_CH1 , rs232_udp);  // PCA9544 channel 1
+					         i2c_scan(PCA9544_CH2 , rs232_udp);  // PCA9544 channel 2
+					         i2c_scan(PCA9544_CH3 , rs232_udp);  // PCA9544 channel 3
 							 break;
 					 case 3: // List all tasks
-							 list_all_tasks(); 
+							 list_all_tasks(rs232_udp); 
 							 break;				 
 					 default: rval = ERR_NUM;
 							  break;
 				 } // switch
+				 udp_endPacket(); // send response
 				 break;
 
 	   case 'w': // PWM signal for Modulating Gas-Burner
@@ -457,8 +510,8 @@ uint8_t execute_rs232_command(char *s)
 				 else 
 				 {
 					 process_pwm_signal(num);
-					 sprintf(s2,"ok%2d\n",rval);
-					 xputs(s2);
+					 //sprintf(s2,"ok%2d\n",rval);
+		             //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 				 } // else				 
 	             break;
 
@@ -466,4 +519,4 @@ uint8_t execute_rs232_command(char *s)
 	            break;
    } // switch
    return rval;	
-} // execute_rs232_commands()
+} // execute_single_command()

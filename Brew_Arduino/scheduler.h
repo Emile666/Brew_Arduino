@@ -7,6 +7,10 @@
   Purpose : This is the header-file for scheduler.c
   ------------------------------------------------------------------
   $Log$
+  Revision 1.4  2013/07/24 13:46:40  Emile
+  - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
+  - Version ready for Integration Testing with PC program!
+
   Revision 1.3  2013/07/21 13:10:44  Emile
   - Reading & Writing of 17 parameters now fully works with set_parameter()
   - VHLT and VMLT tasks added
@@ -34,7 +38,9 @@
 #include <avr/io.h>
 #include <stdbool.h>
 #include "usart.h"
+#include "Udp.h"
 #include "pwm.h"
+#include "brew_arduino.h"
 
 #define MAX_TASKS	  (8)
 #define MAX_MSEC      (60000)
@@ -70,5 +76,6 @@ uint8_t add_task(void (*task_ptr), char *Name, uint16_t delay, uint16_t period);
 uint8_t set_task_time_period(uint16_t Period, char *Name);
 uint8_t enable_task(char *Name);
 uint8_t disable_task(char *Name);
-void    list_all_tasks(void);
+void    list_all_tasks(bool rs232_udp);
+
 #endif

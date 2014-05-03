@@ -4,10 +4,12 @@
 // File   : usart.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.3  2013/07/24 13:46:40  Emile
+// - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
+// - Version ready for Integration Testing with PC program!
+//
 // Revision 1.2  2013/06/23 09:08:51  Emile
 // - Headers added to files
-//
-//
 //-----------------------------------------------------------------------------
 #include "usart.h"
 #include <stdio.h>

@@ -10,6 +10,10 @@
             executing tasks in a cooperative (non pre-emptive) way.
   ------------------------------------------------------------------
   $Log$
+  Revision 1.4  2013/07/24 13:46:40  Emile
+  - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
+  - Version ready for Integration Testing with PC program!
+
   Revision 1.3  2013/07/21 13:10:44  Emile
   - Reading & Writing of 17 parameters now fully works with set_parameter()
   - VHLT and VMLT tasks added
@@ -231,17 +235,18 @@ uint8_t set_task_time_period(uint16_t Period, char *Name)
 
 /*-----------------------------------------------------------------------------
   Purpose  : list all tasks and send result to USB-RS232 using xputs().
-  Variables: -
-  Returns  : -
+  Variables: 
+  rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
+ Returns  : -
   ---------------------------------------------------------------------------*/
-void list_all_tasks(void)
+void list_all_tasks(bool rs232_udp)
 {
 	uint8_t index = 0;
 	uint8_t t1,t2,t3,t4;
 	char    s[50];
-	
-	xputs("Task-Name   T(ms) Stat T(ms) M(ms)\n");
-	//xputs("----------------------------------\n");
+	const char hdr[] = "Task-Name   T(ms) Stat T(ms) M(ms)\n";
+
+	rs232_udp == RS232_USB ? xputs(hdr) : udp_write((uint8_t *)hdr,strlen(hdr));
 	//go through the active tasks
 	if(task_list[index].Period != 0)
 	{
@@ -253,7 +258,7 @@ void list_all_tasks(void)
 			t4 = (task_list[index].Duration_Max - t3 * CLOCKTICKS_PER_MSEC) * CLOCKTICKS_E_2_MSEC;
 			sprintf(s,"%-11s %5d 0x%02x %2d.%02d %2d.%02d\n", task_list[index].Name,
 			        task_list[index].Period,task_list[index].Status, t1, t2, t3, t4);
-			xputs(s);
+			rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
 			index++;
 		} // while
 	} // if

@@ -1,13 +1,14 @@
+/*==================================================================
+  File Name    : $Id$
+  Function name: -
+  Author       : Peter Fleury <pfleury@gmx.ch> http://jump.to/fleury
+  ------------------------------------------------------------------
+  Purpose : This is the header-file for the I2C master interface (i2c.c)
+  ------------------------------------------------------------------
+  $Log$
+  ================================================================== */ 
 #ifndef _I2C_H
 #define _I2C_H   1
-/************************************************************************* 
-* Title:    C include file for the I2C master interface (i2c.c)
-* Author:   Peter Fleury <pfleury@gmx.ch>  http://jump.to/fleury
-* File:     $Id$
-* Software: AVR-GCC 3.4.3 / avr-libc 1.2.3
-* Target:   any AVR device
-* Usage:    see Doxygen manual
-**************************************************************************/
 #include <avr/io.h>
 
 //-------------------------------------------------------------------------
@@ -53,6 +54,7 @@
 
 #define FALSE (0)
 #define TRUE  (!FALSE)
+#define I2C_RETRIES (3)
 
 // I2C slave HW responds with an ACK (0) or an NACK (1)
 enum i2c_acks {I2C_ACK, I2C_NACK};

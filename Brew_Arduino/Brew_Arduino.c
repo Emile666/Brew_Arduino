@@ -1,28 +1,32 @@
 //-----------------------------------------------------------------------------
 // Created: 20-4-2013 22:32:11
 // Author : Emile
-// File   : Brew_Arduino.c
+// File   : $Id$
 //                         Brew Arduino Pin Mapping ATMEGA328P
 //
-//                               -----\/-----
-//                   (RESET) PC6 [01]    [28] PC5 (ADC5/SCL) SCL  analog 5
-// Dig.00 (RX)         (RXD) PD0 [02]    [27] PC4 (ADC4/SDA) SDA  analog 4
-// Dig.01 (TX)         (TXD) PD1 [03]    [26] PC3 (ADC3)     ---  analog 3
-// Dig.02 PUMP_LED    (INT0) PD2 [04]    [25] PC2 (ADC2)     VMLT analog 2
-// Dig.03 HEATER_LED  (INT1) PD3 [05]    [24] PC1 (ADC1)     VHLT analog 1
-// Dig.04 ALIVE_LED (XCK/TO) PD4 [06]    [23] PC0 (ADC0)     LM35 analog 0
-//                           VCC [07]    [22] GND
-//                           GND [08]    [21] AREF
-//             (XTAL1/TOSC1) PB6 [09]    [20] AVCC
-//             (XTAL2/TOSC2) PB7 [10]    [19] PB5 (SCK)      SCK  dig.13 (LED)
-// Dig.05 NON_MOD       (T1) PD5 [11]    [18] PB4 (MISO)     MISO dig.12
-// Dig.06 PUMP        (AIN0) PD6 [12]    [17] PB3 (MOSI/OC2) MOSI dig.11 (PWM)
-// Dig.07 HEATER      (AIN1) PD7 [13]    [16] PB2 (SS/OC1B)  SS   dig.10 (PWM)
-// Dig.08 ---         (ICP1) PB0 [14]    [15] PB1 (OC1A)     PWM  dig.09 (PWM)
+//                                -----\/-----
+//                    (RESET) PC6 [01]    [28] PC5 (ADC5/SCL) SCL  analog 5
+// Dig.00 (RX)          (RXD) PD0 [02]    [27] PC4 (ADC4/SDA) SDA  analog 4
+// Dig.01 (TX)          (TXD) PD1 [03]    [26] PC3 (ADC3)     ---  analog 3
+// Dig.02 PUMP_LED     (INT0) PD2 [04]    [25] PC2 (ADC2)     VMLT analog 2
+// Dig.03 HEATER_LED   (INT1) PD3 [05]    [24] PC1 (ADC1)     VHLT analog 1
+// Dig.04 ALIVE_LED  (XCK/TO) PD4 [06]    [23] PC0 (ADC0)     LM35 analog 0
+//                            VCC [07]    [22] GND
+//                            GND [08]    [21] AREF
+//              (XTAL1/TOSC1) PB6 [09]    [20] AVCC
+//              (XTAL2/TOSC2) PB7 [10]    [19] PB5 (SCK)      SCK  dig.13 (SPI)
+// Dig.05 NON_MOD        (T1) PD5 [11]    [18] PB4 (MISO)     MISO dig.12 (SPI)
+// Dig.06 PUMP         (AIN0) PD6 [12]    [17] PB3 (MOSI/OC2) MOSI dig.11 (SPI)
+// Dig.07 HEATER       (AIN1) PD7 [13]    [16] PB2 (SS/OC1B)  SS   dig.10 (SPI)
+// Dig.08 WIZ550_RESET (ICP1) PB0 [14]    [15] PB1 (OC1A)     PWM  dig.09 (PWM)
 //                               ------------
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.7  2013/07/24 13:46:39  Emile
+// - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
+// - Version ready for Integration Testing with PC program!
+//
 // Revision 1.6  2013/07/23 19:33:17  Emile
 // - Bug-fix slope-limiter function. Tested on all measurements.
 //
@@ -46,13 +50,23 @@
 //
 // Revision 1.2  2013/06/23 08:56:03  Emile
 // - Working version (with PC program) with new command-set.
-//
 //-----------------------------------------------------------------------------
 #include "brew_arduino.h"
+#include "w5500.h"
+#include "Ethernet.h"
+#include "Udp.h"
 
 // Global variables
-const char *ebrew_revision = "$Revision$"; // ebrew CVS revision number
-uint8_t    system_mode     = GAS_MODULATING;     // Default to Modulating Gas-valve
+uint8_t      localIP[4]     = {192,168,1,177};    // local IP address
+unsigned int localPort      = 8888;               // local port to listen on 	
+const char  *ebrew_revision = "$Revision$"; // ebrew CVS revision number
+uint8_t      system_mode    = GAS_MODULATING;     // Default to Modulating Gas-valve
+
+// The following variables are defined in Udp.c
+extern uint8_t  remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed 
+extern uint16_t remotePort;  // remote port for the incoming packet whilst it's being processed 
+extern uint8_t  _sock;       // socket ID for Wiz5100
+unsigned char   udp_rcv_buf[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet]
 
 //---------------------------------------------------------------------------------
 // system_mode == GAS_NON_MODULATING: a hysteresis block is used to determine when
@@ -120,6 +134,8 @@ int16_t  tmlt_temp_16;              // TMLT Temperature in °C * 16
 int16_t  tmlt_offset_16 = 16;       // TMLT offset-correction in °C * 16
 int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
 
+unsigned long t2_millis = 0UL;
+
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
              (f=1 kHz). It is used by the task-scheduler.
@@ -128,19 +144,41 @@ int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
   ------------------------------------------------------------------*/
 ISR(TIMER2_COMPA_vect)
 {
+	t2_millis++;     // update millisecond counter
 	scheduler_isr(); // call the ISR routine for the task-scheduler
 } // ISR()
 
 /*------------------------------------------------------------------
-  Purpose  : This is the task that toggles the LED on the Arduino
-             every 500 msec. (f=1 Hz).
+  Purpose  : This function returns the number of milliseconds since
+			 power-up. It is defined in delay.h
   Variables: -
+  Returns  : The number of milliseconds since power-up
+  ------------------------------------------------------------------*/
+unsigned long millis(void)
+{
+	unsigned long m;
+	// disable interrupts while we read timer0_millis or we might get an
+	// inconsistent value (e.g. in the middle of a write to timer0_millis)
+	ATOMIC_BLOCK(ATOMIC_FORCEON)
+	{
+		m = t2_millis;
+	}
+	return m;
+} // millis()
+
+/*------------------------------------------------------------------
+  Purpose  : This function waits a number of milliseconds. It is 
+             defined in delay.h. Do NOT use this in an interrupt.
+  Variables: 
+         ms: The number of milliseconds to wait.
   Returns  : -
   ------------------------------------------------------------------*/
-void toggle_led_task(void)
+void delay_msec(uint16_t ms)
 {
-	PORTB ^= 0x20; // Toggle PB5 (SCK) with orange Arduino LED
-} // toggle_led_task()
+	unsigned long start = millis();
+
+	while ((millis() - start) < ms) ;
+} // delay_msec()
 
 /*-----------------------------------------------------------------------------
   Purpose  : Converts a PWM signal into a time-division signal of 100 * 50 msec.
@@ -400,10 +438,8 @@ void tmlt_task(void)
   ------------------------------------------------------------------*/
 void init_interrupt(void)
 {
-	DDRB   = 0x20;           // initialize PB5 (Arduino LED) for output, PB0 for input
-	PORTB &= 0xDE;           // Disable Pull-up resistor on PORTB0 + LED off
-	DDRC  &= 0xF8;           // ADC0, ADC1, ADC2 inputs
-	PORTC &= 0xF8;           // Disable Pull-up resistors on ADC0..ADC2
+	DDRC  &= 0xF8; // ADC0, ADC1, ADC2 inputs
+	PORTC &= 0xF8; // Disable Pull-up resistors on ADC0..ADC2
 	
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
 	TCCR2B =  (0x01 << CS22) | (0x01 << CS20); // set pre-scaler to 128
@@ -415,21 +451,47 @@ void init_interrupt(void)
 /*------------------------------------------------------------------
   Purpose  : This function prints a welcome message to the serial
              port together with the current CVS revision number.
-  Variables: -
+  Variables: 
+        ver: string with version info
   Returns  : -
   ------------------------------------------------------------------*/
-void print_ebrew_revision(void)
+void print_ebrew_revision(char *ver)
 {
-	char    s[20];
 	uint8_t len;
+	char s[20];
 	
-	xputs("E-Brew V2.0 rev.");  // welcome message, assure that all is well!
+	strcpy(ver, "E-Brew V2.0 rev.");  // welcome message, assure that all is well!
 	len = strlen(ebrew_revision) - 13;  // just get the rev. number
 	strncpy(s,&ebrew_revision[11],len); // example: " 1.3"
 	s[len]   = '\n';
 	s[len+1] = '\0';
-	xputs(s);
+	strcat(ver,s);
 } // print_ebrew_revision()
+
+/*------------------------------------------------------------------
+  Purpose  : This function prints the IP address to the serial port.
+  Variables: The IP-address to print
+  Returns  : -
+  ------------------------------------------------------------------*/
+void print_IP_address(uint8_t *ip)
+{
+	char s[30];
+	uint8_t i;
+	
+	for (i = 0; i < 4; i++)
+	{
+		sprintf(s,"%d",ip[i]);
+		xputs(s);
+		if (i < 3) xputs(".");
+	} // for
+} // print_IP_address()
+
+//int freeRam (void) 
+//{
+//	extern int __heap_start, *__brkval;
+//	int v;
+//	return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+//}
 
 /*------------------------------------------------------------------
   Purpose  : This is the main() function for the E-brew hardware.
@@ -438,12 +500,20 @@ void print_ebrew_revision(void)
   ------------------------------------------------------------------*/
 int main(void)
 {
+	char     s[30];     // Needed for xputs() and sprintf()
+	uint8_t  x,bufr[8]; // Needed for w5500_read_common_register()
+	uint16_t y, cnt = 0;
+	int	     udp_packet_size;
+	
 	init_interrupt(); // Initialize Interrupts and all hardware devices
 	i2c_init();       // Init. I2C bus
 	adc_init();       // Init. internal 10-bits AD-Converter
 	pwm_init();       // Init. PWM function
 	pwm_write(0);	  // Start with 0 % duty-cycle
-	
+
+	//---------------------------------------------------------------
+	// Init. Moving Average Filters for Measurements
+	//---------------------------------------------------------------
 	init_moving_average(&lm35_ma,10, INIT_TEMP * 100); // Init. MA10-filter with 20 °C
 	init_moving_average(&vhlt_ma, 5, INIT_VOL  *  10); // Init. MA5-filter with 8 L
 	init_moving_average(&vmlt_ma, 5, INIT_VOL  *  10); // Init. VMLT MA5-filter with 8 L
@@ -468,16 +538,50 @@ int main(void)
 	usart_init(MYUBRR); // Initializes the serial communication
 	
 	// Initialize all the tasks for the E-Brew system
-	add_task(toggle_led_task ,"led_blink" , 10,  500); // Toggle led every 500 msec.
-	add_task(pwm_2_time      ,"pwm_2_time", 30,   50); // Electrical Heating PWM every 50 msec.
-	add_task(lm35_task       ,"lm35_task" , 50, 1000); // Process Temperature from LM35 sensor
-	add_task(vhlt_task       ,"vhlt_task" , 70, 1000); // Process Volume from VHLT sensor
-	add_task(vmlt_task       ,"vmlt_task" , 90, 1000); // Process Volume from VMLT sensor
-	add_task(thlt_task       ,"thlt_task" ,110, 1000); // Process Temperature from THLT sensor
-	add_task(tmlt_task       ,"tmlt_task" ,130, 1000); // Process Temperature from TMLT sensor
+	add_task(pwm_2_time      ,"pwm_2_time", 10,   50); // Electrical Heating PWM every 50 msec.
+	add_task(lm35_task       ,"lm35_task" , 30, 1000); // Process Temperature from LM35 sensor
+	add_task(vhlt_task       ,"vhlt_task" , 50, 1000); // Process Volume from VHLT sensor
+	add_task(vmlt_task       ,"vmlt_task" , 70, 1000); // Process Volume from VMLT sensor
+	add_task(thlt_task       ,"thlt_task" , 90, 1000); // Process Temperature from THLT sensor
+	add_task(tmlt_task       ,"tmlt_task" ,110, 1000); // Process Temperature from TMLT sensor
 	
-	sei(); // set global interrupt enable, start task-scheduler
-	print_ebrew_revision(); // print revision number
+	sei();                      // set global interrupt enable, start task-scheduler
+	print_ebrew_revision(s);    // print revision number
+
+#ifdef WIZ550io_PRESENT
+	//---------------------------------------------------------------
+	// Reset WIZ550IO Ethernet module
+	//---------------------------------------------------------------
+	DDRB  |=  WIZ550_HW_RESET; // Set HW_RESET pin as output-pin
+	PORTB &= ~WIZ550_HW_RESET; // Active RESET for WIZ550io
+	delay_msec(1);
+	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
+	delay_msec(150);           // Giver W5500 time to configure itself
+
+	Ethernet_begin_ip(localIP); // includes w5500_init() and spi_init()
+	x = udp_begin(localPort);   // init. UDP protocol
+
+	w5500_read_common_register(SHAR, bufr); // get MAC address
+	sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",bufr[0],bufr[1],bufr[2],bufr[3],bufr[4],bufr[5]);
+	xputs(s);
+	y = w5500_read_common_register(VERSIONR,bufr);
+	sprintf(s,"W5500 VERSIONR: 0x%02x\n",y);          xputs(s);
+	sprintf(s,"udp_begin():%d, sock=%d\n",x,_sock);   xputs(s);
+	x = w5500_read_socket_register(_sock, Sn_MR, bufr);
+	sprintf(s,"Sn_MR=%d, ",x);                        xputs(s);
+	y = w5500_read_socket_register(_sock, Sn_PORT, bufr);
+	sprintf(s,"Sn_PORT=%d, ",y);					  xputs(s);
+	y = w5500_getTXFreeSize(_sock);
+	sprintf(s,"Sn_TXfree=%d, ",y);					  xputs(s);
+	y = w5500_getRXReceivedSize(_sock);
+	sprintf(s,"Sn_RXrecv=%d\n",y);					  xputs(s);
+	w5500_read_common_register(SIPR, bufr);
+	xputs("Local IP address  :"); print_IP_address(bufr);
+	w5500_read_common_register(GAR, bufr);
+	xputs("\nGateway IP address:"); print_IP_address(bufr);
+	w5500_read_common_register(SUBR, bufr);
+	xputs("\nSubnet Mask       :"); print_IP_address(bufr);
+#endif
 
     while(1)
     {
@@ -489,5 +593,26 @@ int main(void)
 			case ERR_I2C: break; // do not print anything 
 			default     : break;
 		} // switch
+		
+#ifdef WIZ550io_PRESENT
+		udp_packet_size = udp_parsePacket();
+		if (udp_packet_size)
+		{
+			//sprintf(s,"\nUDP: %d bytes from ",udp_packet_size);         xputs(s);
+			//print_IP_address(remoteIP); sprintf(s, ":%u\n",remotePort); xputs(s);
+			// read the packet into packetBufffer
+			udp_read(udp_rcv_buf, UDP_TX_PACKET_MAX_SIZE);
+			udp_rcv_buf[udp_packet_size] = '\0';
+			//sprintf(s,"Contents:[%s]\n",udp_rcv_buf);  					xputs(s);
+			ethernet_command_handler((char *)udp_rcv_buf);
+			// send a reply, to the IP address that sent us the packet we received
+			// But with the localPort specified here
+			//udp_beginPacketIP(remoteIP, localPort);
+			//sprintf(s,"ack[%d]",cnt++);
+			//udp_write((uint8_t *)s,strlen(s));
+			//udp_endPacket();
+		} // if	
+		delay_msec(10);	
+#endif
     } // while()
 } // main()

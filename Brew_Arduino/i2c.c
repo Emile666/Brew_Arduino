@@ -1,14 +1,16 @@
-/*************************************************************************
-* Title:    I2C master library using hardware TWI interface
-* Author:   Peter Fleury <pfleury@gmx.ch>  http://jump.to/fleury
-* File:     $Id$
-* Software: AVR-GCC 3.4.3 / avr-libc 1.2.3
-* Target:   any AVR device with hardware TWI 
-* Usage:    API compatible with I2C Software Library i2cmaster.h
-**************************************************************************/
+/*==================================================================
+  File Name    : $Id$
+  Function name: -
+  Author       : Peter Fleury <pfleury@gmx.ch> http://jump.to/fleury
+  ------------------------------------------------------------------
+  Purpose : I2C master library using hardware TWI interface
+  ------------------------------------------------------------------
+  $Log$
+  ================================================================== */ 
 #include <inttypes.h>
 #include <compat/twi.h>
 #include "i2c.h"
+#include "delay.h"         /* for delay_msec() */
 
 /* I2C clock in Hz */
 #define SCL_CLOCK  50000L
@@ -32,16 +34,22 @@ void i2c_init(void)
 enum i2c_acks i2c_start(unsigned char address)
 {
     uint8_t   twst;
+    uint8_t   retries = 0;
 
 	// send START condition
 	TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
 
 	// wait until transmission completed
-	while(!(TWCR & (1<<TWINT)));
+	while ((!(TWCR & (1<<TWINT))) && (retries < I2C_RETRIES))
+	{
+		delay_msec(1);
+		retries++;
+	} // while	
 
 	// check value of TWI Status Register. Mask pre-scaler bits.
 	twst = TW_STATUS & 0xF8;
-	if ( (twst != TW_START) && (twst != TW_REP_START)) return I2C_NACK;
+	if (((twst != TW_START) && (twst != TW_REP_START)) || (retries >= I2C_RETRIES)) 
+		return I2C_NACK;
 
 	// send device address
 	TWDR = address;
@@ -219,13 +227,13 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
    *err = FALSE;	
    if (dvc == THLT)
    {
-      adr = THLT_BASE | I2C_READ; 
-	  i2c_select_channel(THLT_I2C_CH);
+      adr  = THLT_BASE | I2C_READ; 
+	  *err = (i2c_select_channel(THLT_I2C_CH) != I2C_ACK);
    } // if
    else if (dvc == TMLT)
    {
-	  adr = TMLT_BASE | I2C_READ; 
-	  i2c_select_channel(TMLT_I2C_CH);
+	  adr  = TMLT_BASE | I2C_READ; 
+	  *err = (i2c_select_channel(TMLT_I2C_CH) != I2C_ACK);
    } // else if
    else *err = TRUE;
    
@@ -250,7 +258,7 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
       {
          temp = -temp; // negate number
       } // if
+	  i2c_stop();
    } // else
-   i2c_stop();
    return temp;     // Return value now in °C * 16
 } // lm92_read()

@@ -1,9 +1,12 @@
 //-----------------------------------------------------------------------------
 // Created: 20-4-2013 22:32:11
 // Author : Emile
-// File   : misc.h
+// File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.4  2013/07/23 19:33:18  Emile
+// - Bug-fix slope-limiter function. Tested on all measurements.
+//
 // Revision 1.3  2013/07/21 13:10:44  Emile
 // - Reading & Writing of 17 parameters now fully works with set_parameter()
 // - VHLT and VMLT tasks added
