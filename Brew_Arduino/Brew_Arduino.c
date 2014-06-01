@@ -2,6 +2,7 @@
 // Created: 20-4-2013 22:32:11
 // Author : Emile
 // File   : $Id$
+//
 //                         Brew Arduino Pin Mapping ATMEGA328P
 //
 //                                -----\/-----
@@ -23,6 +24,11 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.8  2014/05/03 11:27:43  Emile
+// - Ethernet support added for W550io module
+// - No response for L, N, P, W commands anymore
+// - All source files now have headers
+//
 // Revision 1.7  2013/07/24 13:46:39  Emile
 // - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
 // - Version ready for Integration Testing with PC program!
