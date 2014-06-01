@@ -4,6 +4,11 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.9  2014/05/03 11:27:44  Emile
+// - Ethernet support added for W550io module
+// - No response for L, N, P, W commands anymore
+// - All source files now have headers
+//
 // Revision 1.8  2013/07/24 13:46:40  Emile
 // - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
 // - Version ready for Integration Testing with PC program!
@@ -371,7 +376,10 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
    switch (s[0])
    {
 	   case 'a': // Read analog (LM35, VHLT, VMLT) + digital (THLT, TMLT) values
-				 udp_beginPacketIP(remoteIP, localPort); // send response back
+				 if (rs232_udp == ETHERNET_UDP) 
+				 {
+					 udp_beginPacketIP(remoteIP, localPort); // send response back
+				 } // if				 
 			     rval = 33 + num;
 				 switch (num)
 				 {
@@ -410,7 +418,10 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 {		 
 					rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 				 } // if
-				 udp_endPacket(); // send response
+				 if (rs232_udp == ETHERNET_UDP)
+				 {
+					 udp_endPacket(); // send response
+				 } // if				 
 			     break;
 
 	   case 'l': // ALIVE-Led
@@ -462,7 +473,10 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 	             break;
 
 	   case 's': // System commands
-				 udp_beginPacketIP(remoteIP, localPort); // send response back
+				 if (rs232_udp == ETHERNET_UDP)
+				 {
+					 udp_beginPacketIP(remoteIP, localPort); // send response back
+				 } // if
 	             rval = 49 + num;
 				 switch (num)
 				 {
@@ -500,7 +514,10 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					 default: rval = ERR_NUM;
 							  break;
 				 } // switch
-				 udp_endPacket(); // send response
+				 if (rs232_udp == ETHERNET_UDP)
+				 {
+					 udp_endPacket(); // send response
+				 } // if
 				 break;
 
 	   case 'w': // PWM signal for Modulating Gas-Burner

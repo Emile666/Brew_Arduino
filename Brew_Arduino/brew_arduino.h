@@ -8,6 +8,11 @@
 				 R1.8 <-> ebrew R1.66
   ------------------------------------------------------------------
   $Log$
+  Revision 1.6  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   ================================================================== */ 
 #ifndef _BREW_ARDUINO_H_
 #define _BREW_ARDUINO_H_
@@ -47,7 +52,7 @@
 #include "scheduler.h"
 
 // Uncomment the next line if a WIZ550io module is present
-#define WIZ550io_PRESENT
+//#define WIZ550io_PRESENT
 
 #define RS232_USB    (true)
 #define ETHERNET_UDP (false)
