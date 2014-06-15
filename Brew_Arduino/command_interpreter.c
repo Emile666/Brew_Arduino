@@ -4,6 +4,9 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.10  2014/06/01 13:46:02  Emile
+// Bug-fix: do not call udp routines when in COM port mode!
+//
 // Revision 1.9  2014/05/03 11:27:44  Emile
 // - Ethernet support added for W550io module
 // - No response for L, N, P, W commands anymore
@@ -51,6 +54,7 @@ extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet wh
 extern unsigned int localPort;   // local port to listen on 	
 
 extern uint8_t    system_mode;         // from Brew_Arduino.c
+extern bool       ethernet_WIZ550i;
 extern const char *ebrew_revision;     // ebrew CVS revision number
 extern uint8_t    gas_non_mod_llimit; 
 extern uint8_t    gas_non_mod_hlimit;
@@ -84,6 +88,8 @@ extern int16_t    thlt_slope_16;       // THLT slope-limiter is 2 °C/sec. * 16
 extern int16_t    tmlt_temp_16;        // TMLT Temperature in °C * 16
 extern int16_t    tmlt_offset_16;      // TMLT offset-correction in °C * 16
 extern int16_t    tmlt_slope_16;       // TMLT slope-limiter in °C/sec.
+
+extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
 
 char    rs232_inbuf[USART_BUFLEN];     // buffer for RS232 commands
 uint8_t rs232_ptr = 0;                 // index in RS232 buffer
@@ -336,8 +342,11 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
    - A0           : Read Analog value: LM35 temperature sensor
    - A1 / A2      : Read Analog value: VHLT / VMLT Volumes
    - A3 / A4      : Read Temperature sensor LM92: THLT / TMLT temperature
+   - A5           : Read flow sensor connected between HLT to MLT
 
-   - L0 / L1      : ALIVE Led ON / OFF
+   - E0 / E1      : Ethernet with WIZ550io Disabled / Enabled
+
+   - L0 / L1      : ALIVE Led OFF / ON
 
    - N0           : System-Mode: 0=Modulating, 1=Non-Modulating, 2=Electrical
      N1 / N2      : Hysteresis Lower-Limit / Upper-Limit for Non-Modulating gas-valve
@@ -361,8 +370,8 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
   Returns  : [NO_ERR, ERR_CMD, ERR_NUM, ERR_I2C] or ack. value for command
              cmd ack   cmd ack   cmd ack   cmd ack   cmd      ack
 			 A0  33     L0  38    N0  43    P0  47   W0..W100 52
-			 A1  34     L1  39    N1  44    P1  48   
-			 A2  35     M0  40    N2  45    S0  49   
+			 A1  34     L1  39    N1  44    P1  48   E0       53
+			 A2  35     M0  40    N2  45    S0  49   E1       54
 			 A3  36     M1  41    N3  46    S1  50    
 			 A4  37     M2  42
   ---------------------------------------------------------------------------*/
@@ -411,6 +420,12 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							frac_16 >>= 3;                    // SHR 3 = divide by 8
 							sprintf(s2,"Tmlt=%d.%02d\n",temp,frac_16);
 							break;
+					case 5: // Flow-sensor processing is done by ISR routine PCINT1_vect
+							temp     = (uint16_t)(flow_hlt_mlt * 100 / FLOW_PER_L); // Flow in E-2 Litres
+							frac_16  = temp / 100;
+							frac_16  = temp - 100 * frac_16;
+							sprintf(s2,"Flow1=%d.%02d\n",temp/100,frac_16);
+							break;
 					default: rval = ERR_NUM;
 					         break;
 				 } // switch
@@ -423,6 +438,20 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					 udp_endPacket(); // send response
 				 } // if				 
 			     break;
+
+	   case 'e': // Enable/Disable Ethernet with WIZ550io
+			   if (num > 1) rval = ERR_NUM;
+			   else
+			   {
+				   rval = 53 + num;
+				   if (num)
+				   {   
+					   init_WIZ550IO_module(); // this hangs the system if no WIZ550io is present!!!
+					   ethernet_WIZ550i = true;
+				   }				   	
+				   else	ethernet_WIZ550i = false;
+			   } // else
+			   break;
 
 	   case 'l': // ALIVE-Led
 				 if (num > 1) rval = ERR_NUM;

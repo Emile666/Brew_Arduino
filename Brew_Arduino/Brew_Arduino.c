@@ -6,12 +6,12 @@
 //                         Brew Arduino Pin Mapping ATMEGA328P
 //
 //                                -----\/-----
-//                    (RESET) PC6 [01]    [28] PC5 (ADC5/SCL) SCL  analog 5
-// Dig.00 (RX)          (RXD) PD0 [02]    [27] PC4 (ADC4/SDA) SDA  analog 4
-// Dig.01 (TX)          (TXD) PD1 [03]    [26] PC3 (ADC3)     ---  analog 3
-// Dig.02 PUMP_LED     (INT0) PD2 [04]    [25] PC2 (ADC2)     VMLT analog 2
-// Dig.03 HEATER_LED   (INT1) PD3 [05]    [24] PC1 (ADC1)     VHLT analog 1
-// Dig.04 ALIVE_LED  (XCK/TO) PD4 [06]    [23] PC0 (ADC0)     LM35 analog 0
+//                    (RESET) PC6 [01]    [28] PC5 (ADC5/SCL) SCL   analog 5
+// Dig.00 (RX)          (RXD) PD0 [02]    [27] PC4 (ADC4/SDA) SDA   analog 4
+// Dig.01 (TX)          (TXD) PD1 [03]    [26] PC3 (ADC3)     FLOW1 analog 3
+// Dig.02 PUMP_LED     (INT0) PD2 [04]    [25] PC2 (ADC2)     VMLT  analog 2
+// Dig.03 HEATER_LED   (INT1) PD3 [05]    [24] PC1 (ADC1)     VHLT  analog 1
+// Dig.04 ALIVE_LED  (XCK/TO) PD4 [06]    [23] PC0 (ADC0)     LM35  analog 0
 //                            VCC [07]    [22] GND
 //                            GND [08]    [21] AREF
 //              (XTAL1/TOSC1) PB6 [09]    [20] AVCC
@@ -24,6 +24,9 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.9  2014/06/01 13:51:49  Emile
+// - Update CVS revision number
+//
 // Revision 1.8  2014/05/03 11:27:43  Emile
 // - Ethernet support added for W550io module
 // - No response for L, N, P, W commands anymore
@@ -67,6 +70,7 @@ uint8_t      localIP[4]     = {192,168,1,177};    // local IP address
 unsigned int localPort      = 8888;               // local port to listen on 	
 const char  *ebrew_revision = "$Revision$"; // ebrew CVS revision number
 uint8_t      system_mode    = GAS_MODULATING;     // Default to Modulating Gas-valve
+bool         ethernet_WIZ550i = false;			  // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
 extern uint8_t  remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed 
@@ -140,7 +144,9 @@ int16_t  tmlt_temp_16;              // TMLT Temperature in °C * 16
 int16_t  tmlt_offset_16 = 16;       // TMLT offset-correction in °C * 16
 int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
 
-unsigned long t2_millis = 0UL;
+unsigned long    t2_millis = 0UL;
+unsigned long    flow_hlt_mlt = 0UL;
+volatile uint8_t old_portc = 0xFF; // default is high because of the pull-up
 
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
@@ -152,6 +158,25 @@ ISR(TIMER2_COMPA_vect)
 {
 	t2_millis++;     // update millisecond counter
 	scheduler_isr(); // call the ISR routine for the task-scheduler
+} // ISR()
+
+/*------------------------------------------------------------------
+  Purpose  : This is the State-change interrupt routine for PORTC. 
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
+ISR (PCINT1_vect)
+{
+	uint8_t changedbits;
+
+	changedbits = PINC ^ old_portc;
+	old_portc   = PINC;
+	
+	if(changedbits & (1 << PINB3))
+	{
+		/* PCINT11 changed */
+		flow_hlt_mlt++;
+	} // if
 } // ISR()
 
 /*------------------------------------------------------------------
@@ -444,8 +469,15 @@ void tmlt_task(void)
   ------------------------------------------------------------------*/
 void init_interrupt(void)
 {
+	// Init. port C for reading analog values
 	DDRC  &= 0xF8; // ADC0, ADC1, ADC2 inputs
 	PORTC &= 0xF8; // Disable Pull-up resistors on ADC0..ADC2
+	
+	// Init. port C for reading flow sensor counts
+	DDRC   &= ~0x08;        // PC3 is input
+	PORTC  |= 0x08;         // Enable pull-up resistor on PC3
+	PCICR  |= (1<<PCIE1);   // set PCIE1 to enable PCMSK1 scan
+	PCMSK1 |= (1<<PCINT11); // Enable PC3 pin change interrupt
 	
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
 	TCCR2B =  (0x01 << CS22) | (0x01 << CS20); // set pre-scaler to 128
@@ -492,6 +524,47 @@ void print_IP_address(uint8_t *ip)
 	} // for
 } // print_IP_address()
 
+void init_WIZ550IO_module(void)
+{
+	char     s[30];     // Needed for xputs() and sprintf()
+	uint8_t  x,bufr[8]; // Needed for w5500_read_common_register()
+	uint16_t y, cnt = 0;
+	
+	//---------------------------------------------------------------
+	// Reset WIZ550IO Ethernet module
+	//---------------------------------------------------------------
+	DDRB  |=  WIZ550_HW_RESET; // Set HW_RESET pin as output-pin
+	PORTB &= ~WIZ550_HW_RESET; // Active RESET for WIZ550io
+	delay_msec(1);
+	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
+	delay_msec(150);           // Giver W5500 time to configure itself
+
+	Ethernet_begin_ip(localIP); // includes w5500_init() and spi_init()
+	x = udp_begin(localPort);   // init. UDP protocol
+
+	w5500_read_common_register(SHAR, bufr); // get MAC address
+	sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",bufr[0],bufr[1],bufr[2],bufr[3],bufr[4],bufr[5]);
+	xputs(s);
+	y = w5500_read_common_register(VERSIONR,bufr);
+	sprintf(s,"W5500 VERSIONR: 0x%02x\n",y);          xputs(s);
+	sprintf(s,"udp_begin():%d, sock=%d\n",x,_sock);   xputs(s);
+	x = w5500_read_socket_register(_sock, Sn_MR, bufr);
+	sprintf(s,"Sn_MR=%d, ",x);                        xputs(s);
+	y = w5500_read_socket_register(_sock, Sn_PORT, bufr);
+	sprintf(s,"Sn_PORT=%d, ",y);					  xputs(s);
+	y = w5500_getTXFreeSize(_sock);
+	sprintf(s,"Sn_TXfree=%d, ",y);					  xputs(s);
+	y = w5500_getRXReceivedSize(_sock);
+	sprintf(s,"Sn_RXrecv=%d\n",y);					  xputs(s);
+	w5500_read_common_register(SIPR, bufr);
+	xputs("Local IP address  :"); print_IP_address(bufr);
+	w5500_read_common_register(GAR, bufr);
+	xputs("\nGateway IP address:"); print_IP_address(bufr);
+	w5500_read_common_register(SUBR, bufr);
+	xputs("\nSubnet Mask       :"); print_IP_address(bufr);	
+	xputs("\n");
+} // init_WIZ550IO_module()
+
 //int freeRam (void) 
 //{
 //	extern int __heap_start, *__brkval;
@@ -506,10 +579,8 @@ void print_IP_address(uint8_t *ip)
   ------------------------------------------------------------------*/
 int main(void)
 {
-	char     s[30];     // Needed for xputs() and sprintf()
-	uint8_t  x,bufr[8]; // Needed for w5500_read_common_register()
-	uint16_t y, cnt = 0;
-	int	     udp_packet_size;
+	char s[30];     // Needed for xputs() and sprintf()
+	int	 udp_packet_size;
 	
 	init_interrupt(); // Initialize Interrupts and all hardware devices
 	i2c_init();       // Init. I2C bus
@@ -554,41 +625,6 @@ int main(void)
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number
 
-#ifdef WIZ550io_PRESENT
-	//---------------------------------------------------------------
-	// Reset WIZ550IO Ethernet module
-	//---------------------------------------------------------------
-	DDRB  |=  WIZ550_HW_RESET; // Set HW_RESET pin as output-pin
-	PORTB &= ~WIZ550_HW_RESET; // Active RESET for WIZ550io
-	delay_msec(1);
-	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
-	delay_msec(150);           // Giver W5500 time to configure itself
-
-	Ethernet_begin_ip(localIP); // includes w5500_init() and spi_init()
-	x = udp_begin(localPort);   // init. UDP protocol
-
-	w5500_read_common_register(SHAR, bufr); // get MAC address
-	sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",bufr[0],bufr[1],bufr[2],bufr[3],bufr[4],bufr[5]);
-	xputs(s);
-	y = w5500_read_common_register(VERSIONR,bufr);
-	sprintf(s,"W5500 VERSIONR: 0x%02x\n",y);          xputs(s);
-	sprintf(s,"udp_begin():%d, sock=%d\n",x,_sock);   xputs(s);
-	x = w5500_read_socket_register(_sock, Sn_MR, bufr);
-	sprintf(s,"Sn_MR=%d, ",x);                        xputs(s);
-	y = w5500_read_socket_register(_sock, Sn_PORT, bufr);
-	sprintf(s,"Sn_PORT=%d, ",y);					  xputs(s);
-	y = w5500_getTXFreeSize(_sock);
-	sprintf(s,"Sn_TXfree=%d, ",y);					  xputs(s);
-	y = w5500_getRXReceivedSize(_sock);
-	sprintf(s,"Sn_RXrecv=%d\n",y);					  xputs(s);
-	w5500_read_common_register(SIPR, bufr);
-	xputs("Local IP address  :"); print_IP_address(bufr);
-	w5500_read_common_register(GAR, bufr);
-	xputs("\nGateway IP address:"); print_IP_address(bufr);
-	w5500_read_common_register(SUBR, bufr);
-	xputs("\nSubnet Mask       :"); print_IP_address(bufr);
-#endif
-
     while(1)
     {
 		dispatch_tasks(); // run the task-scheduler
@@ -600,25 +636,16 @@ int main(void)
 			default     : break;
 		} // switch
 		
-#ifdef WIZ550io_PRESENT
-		udp_packet_size = udp_parsePacket();
-		if (udp_packet_size)
+		if (ethernet_WIZ550i) // only true after an E1 command
 		{
-			//sprintf(s,"\nUDP: %d bytes from ",udp_packet_size);         xputs(s);
-			//print_IP_address(remoteIP); sprintf(s, ":%u\n",remotePort); xputs(s);
-			// read the packet into packetBufffer
-			udp_read(udp_rcv_buf, UDP_TX_PACKET_MAX_SIZE);
-			udp_rcv_buf[udp_packet_size] = '\0';
-			//sprintf(s,"Contents:[%s]\n",udp_rcv_buf);  					xputs(s);
-			ethernet_command_handler((char *)udp_rcv_buf);
-			// send a reply, to the IP address that sent us the packet we received
-			// But with the localPort specified here
-			//udp_beginPacketIP(remoteIP, localPort);
-			//sprintf(s,"ack[%d]",cnt++);
-			//udp_write((uint8_t *)s,strlen(s));
-			//udp_endPacket();
-		} // if	
-		delay_msec(10);	
-#endif
+			udp_packet_size = udp_parsePacket();
+			if (udp_packet_size)
+			{
+				udp_read(udp_rcv_buf, UDP_TX_PACKET_MAX_SIZE);
+				udp_rcv_buf[udp_packet_size] = '\0';
+				ethernet_command_handler((char *)udp_rcv_buf);
+			} // if	
+			delay_msec(10);	
+		} // if
     } // while()
 } // main()

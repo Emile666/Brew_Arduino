@@ -8,6 +8,9 @@
 				 R1.8 <-> ebrew R1.66
   ------------------------------------------------------------------
   $Log$
+  Revision 1.7  2014/06/01 13:46:02  Emile
+  Bug-fix: do not call udp routines when in COM port mode!
+
   Revision 1.6  2014/05/03 11:27:44  Emile
   - Ethernet support added for W550io module
   - No response for L, N, P, W commands anymore
@@ -89,6 +92,13 @@
 #define INIT_TEMP  (20)
 #define INIT_VOL    (8)
 
+//---------------------------------------------
+// Q = 5.5 Hz for 1 L, 11 pulses per L per sec.
+// Per minute: 5.5 x 2 pulses x 60 sec. = 660
+//---------------------------------------------
+#define FLOW_PER_L  (660)
+
 void print_ebrew_revision(char *ver);
+void init_WIZ550IO_module(void);
 
 #endif /* _BREW_ARDUINO_H_ */
