@@ -6,6 +6,11 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.4  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   ================================================================== */ 
 #ifndef _I2C_H
 #define _I2C_H   1
@@ -46,7 +51,7 @@
 //-----------------------------------------------------------------
 #define LM92_SIGNb     (0x8000)
 #define LM92_FS        (32768)
-#define LM92_ERR       (99.99)
+#define LM92_ERR       (0x4000)
 
 /** defines the data direction (reading from I2C device) in i2c_start(), i2c_rep_start() */
 #define I2C_READ    (1)

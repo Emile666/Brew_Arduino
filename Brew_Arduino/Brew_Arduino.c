@@ -24,6 +24,11 @@
 //                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.10  2014/06/15 14:52:19  Emile
+// - Commands E0 and E1 (Disable/Enable Ethernet module) added
+// - Interface for waterflow sensor added to PC3/ADC3
+// - Command A5 (read waterflow in E-2 L) added
+//
 // Revision 1.9  2014/06/01 13:51:49  Emile
 // - Update CVS revision number
 //
@@ -134,6 +139,7 @@ int16_t  thlt_old_16;               // Previous value of thlt_temp_16
 int16_t  thlt_temp_16;              // THLT Temperature in °C * 16
 int16_t  thlt_offset_16 = 0;        // THLT offset-correction in °C * 16
 int16_t  thlt_slope_16  = 32;       // THLT slope-limiter is 2 °C/sec. * 16
+uint8_t  thlt_err       = 0;
  
 //-----------------------------------
 // TMLT parameters and variables
@@ -143,6 +149,7 @@ int16_t  tmlt_old_16;               // Previous value of tmlt_temp
 int16_t  tmlt_temp_16;              // TMLT Temperature in °C * 16
 int16_t  tmlt_offset_16 = 16;       // TMLT offset-correction in °C * 16
 int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
+uint8_t  tmlt_err       = 0;
 
 unsigned long    t2_millis = 0UL;
 unsigned long    flow_hlt_mlt = 0UL;
@@ -421,9 +428,8 @@ void thlt_task(void)
 	int16_t  tmp; // temporary variable (signed Q8.4 format)
 	
 	thlt_old_16 = thlt_temp_16; // copy previous value of thlt_temp
-	tmp         = lm92_read(THLT, &err); // returns a signed Q8.4 format
-	if (err) tmp = 0;
-	else
+	tmp         = lm92_read(THLT, &thlt_err); // returns a signed Q8.4 format
+	if (!thlt_err) 
 	{	
 		tmp += thlt_offset_16;
 		slope_limiter(thlt_slope_16, thlt_old_16, &tmp);
@@ -450,10 +456,9 @@ void tmlt_task(void)
 	int16_t tmp; // temporary variable (signed Q8.4 format)
 	
 	tmlt_old_16 = tmlt_temp_16; // copy previous value of tmlt_temp
-	tmp         = lm92_read(TMLT, &err); // returns a signed Q8.4 format
-	if (err) tmp = 0;
-	else
-	{	
+	tmp         = lm92_read(TMLT, &tmlt_err); // returns a signed Q8.4 format
+	if (!tmlt_err)
+	{
 		tmp += tmlt_offset_16;
 		slope_limiter(tmlt_slope_16, tmlt_old_16, &tmp);
 		tmlt_temp_16 = moving_average(&tmlt_ma, tmp);

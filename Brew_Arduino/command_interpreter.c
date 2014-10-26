@@ -4,6 +4,11 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.11  2014/06/15 14:52:20  Emile
+// - Commands E0 and E1 (Disable/Enable Ethernet module) added
+// - Interface for waterflow sensor added to PC3/ADC3
+// - Command A5 (read waterflow in E-2 L) added
+//
 // Revision 1.10  2014/06/01 13:46:02  Emile
 // Bug-fix: do not call udp routines when in COM port mode!
 //
@@ -84,10 +89,12 @@ extern int16_t    vmlt_slope_10;       // VMLT slope-limiter in E-1 L/sec.
 extern int16_t    thlt_temp_16;        // THLT Temperature in °C * 16
 extern int16_t    thlt_offset_16;      // THLT offset-correction in °C * 16
 extern int16_t    thlt_slope_16;       // THLT slope-limiter is 2 °C/sec. * 16
+extern uint8_t    thlt_err;
 
 extern int16_t    tmlt_temp_16;        // TMLT Temperature in °C * 16
 extern int16_t    tmlt_offset_16;      // TMLT offset-correction in °C * 16
 extern int16_t    tmlt_slope_16;       // TMLT slope-limiter in °C/sec.
+extern uint8_t    tmlt_err;
 
 extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
 
@@ -405,20 +412,34 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							sprintf(s2,"Vmlt=%d.%1d\n",temp,vmlt_10-10*temp);
 							break;
 					case 3: // THLT. Processing is done by thlt_task()
-							temp     = thlt_temp_16 >> 4;     // The integer part of THLT
-							frac_16  = thlt_temp_16 & 0x000f; // The fractional part of THLT
-							frac_16 *= 50;                    // 100 / 16 = 50 / 8
-							frac_16 +=  4;                    // 0.5 for rounding
-							frac_16 >>= 3;                    // SHR 3 = divide by 8
-							sprintf(s2,"Thlt=%d.%02d\n",temp,frac_16);
+							if (thlt_err)
+							{
+								sprintf(s2,"Thlt=99.99\n");
+							}
+							else
+							{
+								temp     = thlt_temp_16 >> 4;     // The integer part of THLT
+								frac_16  = thlt_temp_16 & 0x000f; // The fractional part of THLT
+								frac_16 *= 50;                    // 100 / 16 = 50 / 8
+								frac_16 +=  4;                    // 0.5 for rounding
+								frac_16 >>= 3;                    // SHR 3 = divide by 8
+								sprintf(s2,"Thlt=%d.%02d\n",temp,frac_16);
+							} // else							
 							break;
 					case 4: // TMLT. Processing is done by tmlt_task()
-							temp     = tmlt_temp_16 >> 4;     // The integer part of TMLT
-							frac_16  = tmlt_temp_16 & 0x000f; // The fractional part of TMLT
-							frac_16 *= 50;                    // 100 / 16 = 50 / 8
-							frac_16 +=  4;                    // 0.5 for rounding
-							frac_16 >>= 3;                    // SHR 3 = divide by 8
-							sprintf(s2,"Tmlt=%d.%02d\n",temp,frac_16);
+							if (tmlt_err)
+							{
+								sprintf(s2,"Tmlt=99.99\n");
+							}
+							else
+							{
+								temp     = tmlt_temp_16 >> 4;     // The integer part of TMLT
+								frac_16  = tmlt_temp_16 & 0x000f; // The fractional part of TMLT
+								frac_16 *= 50;                    // 100 / 16 = 50 / 8
+								frac_16 +=  4;                    // 0.5 for rounding
+								frac_16 >>= 3;                    // SHR 3 = divide by 8
+								sprintf(s2,"Tmlt=%d.%02d\n",temp,frac_16);
+							} // else							
 							break;
 					case 5: // Flow-sensor processing is done by ISR routine PCINT1_vect
 							temp     = (uint16_t)(flow_hlt_mlt * 100 / FLOW_PER_L); // Flow in E-2 Litres
