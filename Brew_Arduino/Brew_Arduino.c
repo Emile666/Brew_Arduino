@@ -2,28 +2,11 @@
 // Created: 20-4-2013 22:32:11
 // Author : Emile
 // File   : $Id$
-//
-//                         Brew Arduino Pin Mapping ATMEGA328P
-//
-//                                -----\/-----
-//                    (RESET) PC6 [01]    [28] PC5 (ADC5/SCL) SCL   analog 5
-// Dig.00 (RX)          (RXD) PD0 [02]    [27] PC4 (ADC4/SDA) SDA   analog 4
-// Dig.01 (TX)          (TXD) PD1 [03]    [26] PC3 (ADC3)     FLOW1 analog 3
-// Dig.02 PUMP_LED     (INT0) PD2 [04]    [25] PC2 (ADC2)     VMLT  analog 2
-// Dig.03 HEATER_LED   (INT1) PD3 [05]    [24] PC1 (ADC1)     VHLT  analog 1
-// Dig.04 ALIVE_LED  (XCK/TO) PD4 [06]    [23] PC0 (ADC0)     LM35  analog 0
-//                            VCC [07]    [22] GND
-//                            GND [08]    [21] AREF
-//              (XTAL1/TOSC1) PB6 [09]    [20] AVCC
-//              (XTAL2/TOSC2) PB7 [10]    [19] PB5 (SCK)      SCK  dig.13 (SPI)
-// Dig.05 NON_MOD        (T1) PD5 [11]    [18] PB4 (MISO)     MISO dig.12 (SPI)
-// Dig.06 PUMP         (AIN0) PD6 [12]    [17] PB3 (MOSI/OC2) MOSI dig.11 (SPI)
-// Dig.07 HEATER       (AIN1) PD7 [13]    [16] PB2 (SS/OC1B)  SS   dig.10 (SPI)
-// Dig.08 WIZ550_RESET (ICP1) PB0 [14]    [15] PB1 (OC1A)     PWM  dig.09 (PWM)
-//                               ------------
-//                                ATmega328P
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.11  2014/10/26 12:44:47  Emile
+// - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
+//
 // Revision 1.10  2014/06/15 14:52:19  Emile
 // - Commands E0 and E1 (Disable/Enable Ethernet module) added
 // - Interface for waterflow sensor added to PC3/ADC3
@@ -151,9 +134,11 @@ int16_t  tmlt_offset_16 = 16;       // TMLT offset-correction in °C * 16
 int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
 uint8_t  tmlt_err       = 0;
 
-unsigned long    t2_millis = 0UL;
-unsigned long    flow_hlt_mlt = 0UL;
-volatile uint8_t old_portc = 0xFF; // default is high because of the pull-up
+unsigned long    t2_millis     = 0UL;
+unsigned long    flow_hlt_mlt  = 0UL;
+unsigned long    flow_mlt_boil = 0UL;
+volatile uint8_t old_portc     = 0xFF; // default is high because of the pull-up
+volatile uint8_t old_portd     = 0xFF; // default is high because of the pull-up
 
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
@@ -169,6 +154,8 @@ ISR(TIMER2_COMPA_vect)
 
 /*------------------------------------------------------------------
   Purpose  : This is the State-change interrupt routine for PORTC. 
+             It is used to count pulses from FLOW1 (PC3), which is 
+			 the water flow sensor between the HLT and the MLT.
   Variables: -
   Returns  : -
   ------------------------------------------------------------------*/
@@ -181,8 +168,27 @@ ISR (PCINT1_vect)
 	
 	if(changedbits & (1 << PINB3))
 	{
-		/* PCINT11 changed */
-		flow_hlt_mlt++;
+		flow_hlt_mlt++; /* PC3/PCINT11 rising edge */
+	} // if
+} // ISR()
+
+/*------------------------------------------------------------------
+  Purpose  : This is the State-change interrupt routine for PORTD. 
+             It is used to count pulses from FLOW2 (PD2), which is 
+			 the water flow sensor between the MLT and the boil-kettle.
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
+ISR (PCINT2_vect)
+{
+	uint8_t changedbits;
+
+	changedbits = PIND ^ old_portd;
+	old_portd   = PIND;
+	
+	if(changedbits & (1 << PIND2))
+	{
+		flow_mlt_boil++; /* PD2/PCINT18 rising edge */
 	} // if
 } // ISR()
 
@@ -424,7 +430,6 @@ void vmlt_task(void)
   --------------------------------------------------------------------*/
 void thlt_task(void)
 {
-	uint8_t  err; // error return value
 	int16_t  tmp; // temporary variable (signed Q8.4 format)
 	
 	thlt_old_16 = thlt_temp_16; // copy previous value of thlt_temp
@@ -452,7 +457,6 @@ void thlt_task(void)
   --------------------------------------------------------------------*/
 void tmlt_task(void)
 {
-	uint8_t err; // error return value
 	int16_t tmp; // temporary variable (signed Q8.4 format)
 	
 	tmlt_old_16 = tmlt_temp_16; // copy previous value of tmlt_temp
@@ -484,6 +488,12 @@ void init_interrupt(void)
 	PCICR  |= (1<<PCIE1);   // set PCIE1 to enable PCMSK1 scan
 	PCMSK1 |= (1<<PCINT11); // Enable PC3 pin change interrupt
 	
+	// Init. port D for reading flow sensor counts
+	DDRD   &= ~0x04;        // PD2 is input
+	PORTD  |= 0x04;         // Enable pull-up resistor on PD2
+	PCICR  |= (1<<PCIE2);   // set PCIE2 to enable PCMSK2 scan
+	PCMSK2 |= (1<<PCINT18); // Enable PD2 pin change interrupt
+
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
 	TCCR2B =  (0x01 << CS22) | (0x01 << CS20); // set pre-scaler to 128
 	OCR2A  =  124;   // this should set interrupt frequency to 1000 Hz
@@ -533,7 +543,7 @@ void init_WIZ550IO_module(void)
 {
 	char     s[30];     // Needed for xputs() and sprintf()
 	uint8_t  x,bufr[8]; // Needed for w5500_read_common_register()
-	uint16_t y, cnt = 0;
+	uint16_t y;
 	
 	//---------------------------------------------------------------
 	// Reset WIZ550IO Ethernet module
@@ -608,12 +618,12 @@ int main(void)
 	tmlt_temp_16 = INIT_TEMP << 4;
 	
 	//------------------------------------------------------
-	// PD2..PD4: LEDs ; PD5..PD7: Digital switching outputs
+	// PD3..PD4: LEDs ; PD5..PD7: Digital switching outputs
 	// - Init. all IO pins as output
 	// - Init. all IO pins to 0  
 	//------------------------------------------------------
-	DDRD  |=  (PUMP_LED | HEATER_LED | ALIVE_LED | NON_MOD | PUMP | HEATER);
-	PORTD &= ~(PUMP_LED | HEATER_LED | ALIVE_LED | NON_MOD | PUMP | HEATER);
+	DDRD  |=  (HEATER_LED | ALIVE_LED | NON_MOD | PUMP | HEATER);
+	PORTD &= ~(HEATER_LED | ALIVE_LED | NON_MOD | PUMP | HEATER);
 		
 	// Initialize Serial Communication, See usart.h for BAUD
 	// F_CPU should be a Project Define (-DF_CPU=(xxxL)

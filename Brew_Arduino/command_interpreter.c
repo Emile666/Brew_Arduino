@@ -4,6 +4,9 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.12  2014/10/26 12:44:47  Emile
+// - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
+//
 // Revision 1.11  2014/06/15 14:52:20  Emile
 // - Commands E0 and E1 (Disable/Enable Ethernet module) added
 // - Interface for waterflow sensor added to PC3/ADC3
@@ -97,6 +100,7 @@ extern int16_t    tmlt_slope_16;       // TMLT slope-limiter in °C/sec.
 extern uint8_t    tmlt_err;
 
 extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
+extern unsigned long flow_mlt_boil;    // Count from flow-sensor between MLT and boil-kettle
 
 char    rs232_inbuf[USART_BUFLEN];     // buffer for RS232 commands
 uint8_t rs232_ptr = 0;                 // index in RS232 buffer
@@ -350,6 +354,7 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
    - A1 / A2      : Read Analog value: VHLT / VMLT Volumes
    - A3 / A4      : Read Temperature sensor LM92: THLT / TMLT temperature
    - A5           : Read flow sensor connected between HLT to MLT
+   - A6           : Read flow sensor connected between MLT to boil-kettle
 
    - E0 / E1      : Ethernet with WIZ550io Disabled / Enabled
 
@@ -376,11 +381,13 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
   rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
   Returns  : [NO_ERR, ERR_CMD, ERR_NUM, ERR_I2C] or ack. value for command
              cmd ack   cmd ack   cmd ack   cmd ack   cmd      ack
-			 A0  33     L0  38    N0  43    P0  47   W0..W100 52
-			 A1  34     L1  39    N1  44    P1  48   E0       53
-			 A2  35     M0  40    N2  45    S0  49   E1       54
-			 A3  36     M1  41    N3  46    S1  50    
-			 A4  37     M2  42
+			 A0  33     L0  40    N0  43    P0  65   W0..W100 75
+			 A1  34     L1  41    ..  ..    P1  66   E0       76
+			 A2  35     N0  42    N16 59    S0  67   E1       77
+			 A3  36     N1  43              S1  68    
+			 A4  37     N2  44              S2  69
+			 A5  38     N3  45              S3  70
+			 A6  39     N4  46
   ---------------------------------------------------------------------------*/
 uint8_t execute_single_command(char *s, bool rs232_udp)
 {
@@ -447,6 +454,12 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							frac_16  = temp - 100 * frac_16;
 							sprintf(s2,"Flow1=%d.%02d\n",temp/100,frac_16);
 							break;
+					case 6: // Flow-sensor processing is done by ISR routine PCINT2_vect
+							temp     = (uint16_t)(flow_mlt_boil * 100 / FLOW_PER_L); // Flow in E-2 Litres
+							frac_16  = temp / 100;
+							frac_16  = temp - 100 * frac_16;
+							sprintf(s2,"Flow2=%d.%02d\n",temp/100,frac_16);
+							break;
 					default: rval = ERR_NUM;
 					         break;
 				 } // switch
@@ -464,7 +477,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 			   if (num > 1) rval = ERR_NUM;
 			   else
 			   {
-				   rval = 53 + num;
+				   rval = 76 + num;
 				   if (num)
 				   {   
 					   init_WIZ550IO_module(); // this hangs the system if no WIZ550io is present!!!
@@ -478,11 +491,9 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 if (num > 1) rval = ERR_NUM;
 				 else
 			  	 {
-					 rval = 38 + num;
+					 rval = 40 + num;
 					 if (num) PORTD |=  ALIVE_LED;
 					 else     PORTD &= ~ALIVE_LED;
-					 //sprintf(s2,"ok%2d\n",rval);
-					 //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 				 } // else
 				 break;
 
@@ -504,21 +515,17 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					else
 					{
 						rval = 43 + num;
-						//sprintf(s2,"ok%2d\n",rval);
-					    //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 					} // else
 				 } // else
 	             break;
 
 	   case 'p': // Pump
-	             rval = 47 + num;
+	             rval = 65 + num;
 				 if (num > 1) rval = ERR_NUM;
 				 else 
 				 {
-					 if (num == 0) PORTD &= ~(PUMP | PUMP_LED);
-					 else          PORTD |=  (PUMP | PUMP_LED);
-					 //sprintf(s2,"ok%2d\n",rval);
-					 //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+					 if (num == 0) PORTD &= ~(PUMP);
+					 else          PORTD |=  (PUMP);
 				 } // else				 
 	             break;
 
@@ -527,7 +534,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 {
 					 udp_beginPacketIP(remoteIP, localPort); // send response back
 				 } // if
-	             rval = 49 + num;
+	             rval = 67 + num;
 				 switch (num)
 				 {
 					 case 0: // Ebrew revision
@@ -571,7 +578,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 break;
 
 	   case 'w': // PWM signal for Modulating Gas-Burner
-	             rval = 52 + num;
+	             rval = 75 + num;
 				 if (num > 100) 
 				      rval = ERR_NUM;
 				 else 
