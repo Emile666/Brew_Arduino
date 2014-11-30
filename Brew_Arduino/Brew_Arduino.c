@@ -4,6 +4,12 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.12  2014/11/09 15:38:34  Emile
+// - PUMP_LED removed from PD2, PUMP has same function
+// - Interface for 2nd waterflow sensor added to PD2
+// - Command A6 (read waterflow in E-2 L) added
+// - FLOW_PER_L changed to 330 (only rising edge is counted)
+//
 // Revision 1.11  2014/10/26 12:44:47  Emile
 // - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
 //
@@ -639,6 +645,7 @@ int main(void)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number
+    mcp23017_init();            // Init. IO-expander for valves
 
     while(1)
     {

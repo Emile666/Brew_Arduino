@@ -6,6 +6,11 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.5  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   ================================================================== */ 
 #include <inttypes.h>
 #include <compat/twi.h>
@@ -262,3 +267,72 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
    } // else
    return temp;     // Return value now in °C * 16
 } // lm92_read()
+
+uint8_t mcp23017_init(void)
+/*------------------------------------------------------------------
+  Purpose  : This function inits the MCP23017 16-bit IO-expander
+  Variables: -
+  Returns  : 0: no error, 1: error
+  ------------------------------------------------------------------*/
+{
+	uint8_t err;
+	err = mcp23017_write(IOCON, IOCON_INIT);
+	if (!err)
+	{
+		err = mcp23017_write(IODIRA, 0x00); // all PORTA bits are output
+		err = mcp23017_write(IODIRB, 0x00); // all PORTB bits are output
+	} // if
+	return err;	
+} // mcp23017_init()
+
+uint8_t mcp23017_read(uint8_t reg)
+/*------------------------------------------------------------------
+  Purpose  : This function reads one register from the MCP23017
+             16-bit IO-expander
+  Variables:
+       reg : The register to read from
+  Returns  : the value returned from the register
+  ------------------------------------------------------------------*/
+{
+	uint8_t err, ret = 0;
+	
+	err = (i2c_select_channel(MCP23017_I2C_CH) != I2C_ACK);
+	if (!err) 
+	{   // generate I2C start + output address to I2C bus
+		err = (i2c_start(MCP23017_BASE | I2C_WRITE) == I2C_NACK); 
+	} // if
+	if (!err)
+	{
+		err = (i2c_write(reg)  == I2C_NACK); // write register address
+		i2c_rep_start(MCP23017_BASE | I2C_READ);
+		ret = i2c_readNak(); // Read byte, generate I2C stop condition
+		i2c_stop();
+	} // if
+	return ret;
+} // mcp23017_read()
+
+uint8_t mcp23017_write(uint8_t reg, uint8_t data)
+/*------------------------------------------------------------------
+  Purpose  : This function write one data byte to a specific register 
+			 of the MCP23017 16-bit IO-expander
+  Variables:
+       reg : The register to write to
+	   data: The data byte to write into the register
+  Returns  : 0: no error, 1: error
+  ------------------------------------------------------------------*/
+{
+	uint8_t err;
+		
+	err = (i2c_select_channel(MCP23017_I2C_CH) != I2C_ACK);
+	if (!err) 
+	{   // generate I2C start + output address to I2C bus
+		err = (i2c_start(MCP23017_BASE | I2C_WRITE) == I2C_NACK);
+	} // if
+	if (!err)
+	{
+		err = (i2c_write(reg)  == I2C_NACK); // write register address
+		err = (i2c_write(data) == I2C_NACK); // write register value
+		i2c_stop();
+	} // if
+	return err;
+} // mcp23017_write()

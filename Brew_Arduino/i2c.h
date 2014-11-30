@@ -6,6 +6,9 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.5  2014/10/26 12:44:47  Emile
+  - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
+
   Revision 1.4  2014/05/03 11:27:44  Emile
   - Ethernet support added for W550io module
   - No response for L, N, P, W commands anymore
@@ -15,6 +18,37 @@
 #ifndef _I2C_H
 #define _I2C_H   1
 #include <avr/io.h>
+
+//-------------------------------------------------------------------------
+// MCP23017 16-BIT IO Expander: Register names when BANK == 1
+//
+#define IOCON    (0x05)
+// Bank addressing, seq. operation disabled, slew rate enabled
+// HW addressing enabled
+#define IOCON_INIT (0xAA)
+
+#define IODIRA   (0x00)
+#define IPOLA    (0x01)
+#define GPINTENA (0x02)
+#define DEFVALA  (0x03)
+#define INTCONA  (0x04)
+#define GPPUA    (0x06)
+#define INTFA    (0x07)
+#define INTCAPA  (0x08)
+#define GPIOA    (0x09)
+#define OLATA    (0x0A)
+
+#define IODIRB   (IODIRA   + 0x10)
+#define IPOLB    (IPOLA    + 0x10)
+#define GPINTENB (GPINTENA + 0x10)
+#define DEFVALB  (DEFVALA  + 0x10)
+#define INTCONB  (INTCONA  + 0x10)
+#define GPPUB    (GPPUA    + 0x10)
+#define INTFB    (INTFA    + 0x10)
+#define INTCAPB  (INTCAPA  + 0x10)
+#define GPIOB    (GPIOA    + 0x10)
+#define OLATB    (OLATA    + 0x10)
+
 
 //-------------------------------------------------------------------------
 // PCA9544 I2C Multiplexer
@@ -31,11 +65,13 @@
 #define PCA9544_CH3  (0x07)
 
 /** Define all I2C Hardware addresses **/
-#define PCF8574     (0x44) /* CH0: 8-bit IO for Valve Outputs (Optional) */
-#define LM92_0_BASE (0x90) /* CH2: LM92 */
-#define LM92_1_BASE (0x92) /* CH2: LM92 */
-#define LM92_2_BASE (0x94) /* CH2: LM92 */
-#define LM92_3_BASE (0x96) /* CH2: LM92 */
+#define MCP23017_BASE   (0x44) /* CH0: 8-bit IO for Valve Outputs (Optional) */
+#define MCP23017_I2C_CH (PCA9544_CH0)
+
+#define LM92_0_BASE   (0x90) /* Not used */
+#define LM92_1_BASE   (0x92) /* CH2: LM92 */
+#define LM92_2_BASE   (0x94) /* CH3: LM92 */
+#define LM92_3_BASE   (0x96) /* Not used */
 
 #define THLT        (0)
 #define THLT_BASE   (LM92_1_BASE)
@@ -75,6 +111,9 @@ unsigned char i2c_readNak(void); // read one byte from the I2C device, read is f
 unsigned char i2c_read(unsigned char ack); // read one byte from the I2C device
 enum i2c_acks i2c_select_channel(uint8_t ch); // Set PCA9544 channel
 int16_t       lm92_read(uint8_t dvc, uint8_t *err);
+uint8_t       mcp23017_init(void);
+uint8_t		  mcp23017_read(uint8_t reg);
+uint8_t       mcp23017_write(uint8_t reg, uint8_t data);
 
 //  Implemented as a macro, which calls either i2c_readAck or i2c_readNak
 #define i2c_read(ack)  (ack==I2C_ACK) ? i2c_readAck() : i2c_readNak(); 

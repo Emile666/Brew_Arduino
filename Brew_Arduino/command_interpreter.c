@@ -4,6 +4,12 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.13  2014/11/09 15:38:34  Emile
+// - PUMP_LED removed from PD2, PUMP has same function
+// - Interface for 2nd waterflow sensor added to PD2
+// - Command A6 (read waterflow in E-2 L) added
+// - FLOW_PER_L changed to 330 (only rising edge is counted)
+//
 // Revision 1.12  2014/10/26 12:44:47  Emile
 // - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
 //
@@ -371,6 +377,8 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 	 S2           : List all connected I2C devices  
 	 S3           : List all tasks
 	 	
+   - V0...V255    : Output bits for valves V1 until V8
+   
    - W0...W100    : PID-output, needed for:
 			        - PWM output for modulating gas-valve (N0=0)
 				    - Time-Division ON/OFF signal for Non-Modulating gas-valve (N0=1)
@@ -384,7 +392,7 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 			 A0  33     L0  40    N0  43    P0  65   W0..W100 75
 			 A1  34     L1  41    ..  ..    P1  66   E0       76
 			 A2  35     N0  42    N16 59    S0  67   E1       77
-			 A3  36     N1  43              S1  68    
+			 A3  36     N1  43              S1  68   Vx       78 
 			 A4  37     N2  44              S2  69
 			 A5  38     N3  45              S3  70
 			 A6  39     N4  46
@@ -577,6 +585,11 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 } // if
 				 break;
 
+	   case 'v': // Output Valve On-Off signals to MCP23017 16-bit IO
+			   rval = 78;
+			   mcp23017_write(OLATA,num); // write valve bits to IO-expander PORTA
+			   break;
+
 	   case 'w': // PWM signal for Modulating Gas-Burner
 	             rval = 75 + num;
 				 if (num > 100) 
@@ -584,8 +597,6 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 else 
 				 {
 					 process_pwm_signal(num);
-					 //sprintf(s2,"ok%2d\n",rval);
-		             //rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 				 } // else				 
 	             break;
 
