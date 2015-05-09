@@ -6,6 +6,10 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.6  2014/11/30 20:44:45  Emile
+  - Vxxx command added to write valve output bits
+  - mcp23017 (16 bit I2C IO-expander) routines + defines added
+
   Revision 1.5  2014/10/26 12:44:47  Emile
   - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
 
@@ -52,8 +56,8 @@
 
 //-------------------------------------------------------------------------
 // PCA9544 I2C Multiplexer
-// Channel 0: Internal I2C for MAX1238 (ADC) and PCF8574 (Valve Outputs)
-// Channel 1: I2C for SAA1064 7-segment displays
+// Channel 0: CON14 SPI_I2C_BUS (as of HW PCB V3.01)
+// Channel 1: MCP23017 (0x40)   (as of HW PCB V3.01)
 // Channel 2: I2C for LM92_0
 // Channel 3: I2C for LM92_1
 //-------------------------------------------------------------------------
@@ -65,8 +69,9 @@
 #define PCA9544_CH3  (0x07)
 
 /** Define all I2C Hardware addresses **/
-#define MCP23017_BASE   (0x44) /* CH0: 8-bit IO for Valve Outputs (Optional) */
-#define MCP23017_I2C_CH (PCA9544_CH0)
+/** NOTE: 0x44 on older PCBs, 0x40 as of HW PCB V3.01 **/
+#define MCP23017_BASE   (0x40) /* CH0: 16-bit IO for Valve Outputs (Optional) */
+#define MCP23017_I2C_CH (PCA9544_CH1)
 
 #define LM92_0_BASE   (0x90) /* Not used */
 #define LM92_1_BASE   (0x92) /* CH2: LM92 */

@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.14  2015/05/09 13:36:54  Emile
+// - MCP23017 Port B now always input. Port A Pull-up resistors enabled.
+// - Bug-fix for HW PCB V3.01
+//
 // Revision 1.13  2014/11/30 20:44:45  Emile
 // - Vxxx command added to write valve output bits
 // - mcp23017 (16 bit I2C IO-expander) routines + defines added
@@ -606,7 +610,6 @@ int main(void)
 {
 	char    s[30];     // Needed for xputs() and sprintf()
 	int	    udp_packet_size;
-	uint8_t err;
 	
 	init_interrupt(); // Initialize Interrupts and all hardware devices
 	i2c_init();       // Init. I2C bus
@@ -649,9 +652,8 @@ int main(void)
 	add_task(tmlt_task       ,"tmlt_task" ,110, 1000); // Process Temperature from TMLT sensor
 	
 	sei();                      // set global interrupt enable, start task-scheduler
-	print_ebrew_revision(s);    // print revision number
-    err = mcp23017_init();      // Init. IO-expander for valves (port A output, port B input)
-	if (err)
+	print_ebrew_revision(s);    // print revision number    
+	if (mcp23017_init())        // Init. IO-expander for valves (port A output, port B input)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if
