@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.13  2014/11/30 20:44:45  Emile
+// - Vxxx command added to write valve output bits
+// - mcp23017 (16 bit I2C IO-expander) routines + defines added
+//
 // Revision 1.12  2014/11/09 15:38:34  Emile
 // - PUMP_LED removed from PD2, PUMP has same function
 // - Interface for 2nd waterflow sensor added to PD2
@@ -600,8 +604,9 @@ void init_WIZ550IO_module(void)
   ------------------------------------------------------------------*/
 int main(void)
 {
-	char s[30];     // Needed for xputs() and sprintf()
-	int	 udp_packet_size;
+	char    s[30];     // Needed for xputs() and sprintf()
+	int	    udp_packet_size;
+	uint8_t err;
 	
 	init_interrupt(); // Initialize Interrupts and all hardware devices
 	i2c_init();       // Init. I2C bus
@@ -645,8 +650,12 @@ int main(void)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number
-    mcp23017_init();            // Init. IO-expander for valves
-
+    err = mcp23017_init();      // Init. IO-expander for valves (port A output, port B input)
+	if (err)
+	{
+		xputs("mcp23017_init() error\n");
+	} // if
+		
     while(1)
     {
 		dispatch_tasks(); // run the task-scheduler

@@ -6,6 +6,10 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.6  2014/11/30 20:44:45  Emile
+  - Vxxx command added to write valve output bits
+  - mcp23017 (16 bit I2C IO-expander) routines + defines added
+
   Revision 1.5  2014/05/03 11:27:44  Emile
   - Ethernet support added for W550io module
   - No response for L, N, P, W commands anymore
@@ -280,7 +284,8 @@ uint8_t mcp23017_init(void)
 	if (!err)
 	{
 		err = mcp23017_write(IODIRA, 0x00); // all PORTA bits are output
-		err = mcp23017_write(IODIRB, 0x00); // all PORTB bits are output
+		err = mcp23017_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
+		err = mcp23017_write(IODIRB, 0xFF); // all PORTB bits are input
 	} // if
 	return err;	
 } // mcp23017_init()
