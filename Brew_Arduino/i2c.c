@@ -6,6 +6,10 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.7  2015/05/09 13:36:54  Emile
+  - MCP23017 Port B now always input. Port A Pull-up resistors enabled.
+  - Bug-fix for HW PCB V3.01
+
   Revision 1.6  2014/11/30 20:44:45  Emile
   - Vxxx command added to write valve output bits
   - mcp23017 (16 bit I2C IO-expander) routines + defines added
@@ -283,9 +287,11 @@ uint8_t mcp23017_init(void)
 	err = mcp23017_write(IOCON, IOCON_INIT);
 	if (!err)
 	{
+		err = mcp23017_write(IODIRB, 0xFF); // all PORTB bits are input
 		err = mcp23017_write(IODIRA, 0x00); // all PORTA bits are output
 		err = mcp23017_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
-		err = mcp23017_write(IODIRB, 0xFF); // all PORTB bits are input
+		err = mcp23017_write(OLATA,  0xFF); // HW-bug? Have to write this first
+		err = mcp23017_write(OLATA,  0x00); // All valves are OFF at power-up
 	} // if
 	return err;	
 } // mcp23017_init()

@@ -4,6 +4,9 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.15  2015/05/09 14:37:37  Emile
+// - I2C Channel & HW-address update for MCP23017 to reflect changes in HW PCB V3.01
+//
 // Revision 1.14  2015/05/09 13:36:54  Emile
 // - MCP23017 Port B now always input. Port A Pull-up resistors enabled.
 // - Bug-fix for HW PCB V3.01
@@ -66,6 +69,8 @@
 #include "w5500.h"
 #include "Ethernet.h"
 #include "Udp.h"
+
+extern char rs232_inbuf[];
 
 // Global variables
 uint8_t      localIP[4]     = {192,168,1,177};    // local IP address
@@ -664,7 +669,9 @@ int main(void)
 		switch (rs232_command_handler()) // run command handler continuously
 		{
 			case ERR_CMD: xputs("Command Error\n"); break;
-			case ERR_NUM: xputs("Number Error\n");  break;
+			case ERR_NUM: sprintf(s,"Number Error (%s)\n",rs232_inbuf);
+						  xputs(s);  
+						  break;
 			case ERR_I2C: break; // do not print anything 
 			default     : break;
 		} // switch
