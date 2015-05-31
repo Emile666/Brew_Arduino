@@ -4,6 +4,9 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.16  2015/05/12 14:18:37  Emile
+// - HW-bugfix: MCP23017 output latches needs to be written first with 0xFF.
+//
 // Revision 1.15  2015/05/09 14:37:37  Emile
 // - I2C Channel & HW-address update for MCP23017 to reflect changes in HW PCB V3.01
 //
@@ -156,8 +159,8 @@ uint8_t  tmlt_err       = 0;
 unsigned long    t2_millis     = 0UL;
 unsigned long    flow_hlt_mlt  = 0UL;
 unsigned long    flow_mlt_boil = 0UL;
-volatile uint8_t old_portc     = 0xFF; // default is high because of the pull-up
-volatile uint8_t old_portd     = 0xFF; // default is high because of the pull-up
+volatile uint8_t old_pc3       = 0x08; // default is high because of the pull-up
+volatile uint8_t old_pd2       = 0x04; // default is high because of the pull-up
 
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
@@ -180,16 +183,17 @@ ISR(TIMER2_COMPA_vect)
   ------------------------------------------------------------------*/
 ISR (PCINT1_vect)
 {
-	uint8_t changedbits;
-
-	changedbits = PINC ^ old_portc;
-	old_portc   = PINC;
+	uint8_t pc3, dpc3;
 	
-	if(changedbits & (1 << PINB3))
-	{
+	pc3     = PINC & (1 << PINC3); // is either 0x00 or 0x08
+	dpc3    = pc3 ^ old_pc3;       // reads 0x08 on rising & falling edge
+	old_pc3 = pc3;                 // save current value of PC3
+	
+	if (dpc3 && pc3)
+	{   // PC3 is 1 => rising edge detected
 		flow_hlt_mlt++; /* PC3/PCINT11 rising edge */
 	} // if
-} // ISR()
+} // ISR(PCINT1_vect)
 
 /*------------------------------------------------------------------
   Purpose  : This is the State-change interrupt routine for PORTD. 
@@ -200,16 +204,17 @@ ISR (PCINT1_vect)
   ------------------------------------------------------------------*/
 ISR (PCINT2_vect)
 {
-	uint8_t changedbits;
+	uint8_t pd2, dpd2;
 
-	changedbits = PIND ^ old_portd;
-	old_portd   = PIND;
+	pd2     = PIND & (1 << PIND2); // is either 0x00 or 0x04
+	dpd2    = pd2 ^ old_pd2;       // reads 0x04 on rising & falling edge
+	old_pd2 = pd2;                 // save current value of PD2
 	
-	if(changedbits & (1 << PIND2))
-	{
+	if (dpd2 && pd2)
+	{   // PD2 is 1 => rising edge detected
 		flow_mlt_boil++; /* PD2/PCINT18 rising edge */
 	} // if
-} // ISR()
+} // ISR(PCINT2_vect)
 
 /*------------------------------------------------------------------
   Purpose  : This function returns the number of milliseconds since

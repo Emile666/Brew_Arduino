@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.14  2014/11/30 20:44:45  Emile
+// - Vxxx command added to write valve output bits
+// - mcp23017 (16 bit I2C IO-expander) routines + defines added
+//
 // Revision 1.13  2014/11/09 15:38:34  Emile
 // - PUMP_LED removed from PD2, PUMP has same function
 // - Interface for 2nd waterflow sensor added to PD2
@@ -457,13 +461,13 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							} // else							
 							break;
 					case 5: // Flow-sensor processing is done by ISR routine PCINT1_vect
-							temp     = (uint16_t)(flow_hlt_mlt * 100 / FLOW_PER_L); // Flow in E-2 Litres
+							temp     = (uint16_t)((flow_hlt_mlt * 100 + FLOW_ROUND_OFF) / FLOW_PER_L); // Flow in E-2 Litres
 							frac_16  = temp / 100;
 							frac_16  = temp - 100 * frac_16;
 							sprintf(s2,"Flow1=%d.%02d\n",temp/100,frac_16);
 							break;
 					case 6: // Flow-sensor processing is done by ISR routine PCINT2_vect
-							temp     = (uint16_t)(flow_mlt_boil * 100 / FLOW_PER_L); // Flow in E-2 Litres
+							temp     = (uint16_t)((flow_mlt_boil * 100 + FLOW_ROUND_OFF) / FLOW_PER_L); // Flow in E-2 Litres
 							frac_16  = temp / 100;
 							frac_16  = temp - 100 * frac_16;
 							sprintf(s2,"Flow2=%d.%02d\n",temp/100,frac_16);

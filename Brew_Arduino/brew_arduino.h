@@ -8,6 +8,12 @@
 				 R1.8 <-> ebrew R1.66
   ------------------------------------------------------------------
   $Log$
+  Revision 1.9  2014/11/09 15:38:34  Emile
+  - PUMP_LED removed from PD2, PUMP has same function
+  - Interface for 2nd waterflow sensor added to PD2
+  - Command A6 (read waterflow in E-2 L) added
+  - FLOW_PER_L changed to 330 (only rising edge is counted)
+
   Revision 1.8  2014/06/15 14:52:20  Emile
   - Commands E0 and E1 (Disable/Enable Ethernet module) added
   - Interface for waterflow sensor added to PC3/ADC3
@@ -102,7 +108,8 @@
 // An interrupt is generated for a rising AND
 // falling edge, but only the rising edge is counted.
 //---------------------------------------------------
-#define FLOW_PER_L  (330)
+#define FLOW_PER_L     (330)
+#define FLOW_ROUND_OFF (FLOW_PER_L>>1)
 
 void print_ebrew_revision(char *ver);
 void init_WIZ550IO_module(void);

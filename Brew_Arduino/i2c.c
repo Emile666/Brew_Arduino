@@ -6,6 +6,9 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.8  2015/05/12 14:18:37  Emile
+  - HW-bugfix: MCP23017 output latches needs to be written first with 0xFF.
+
   Revision 1.7  2015/05/09 13:36:54  Emile
   - MCP23017 Port B now always input. Port A Pull-up resistors enabled.
   - Bug-fix for HW PCB V3.01
@@ -290,7 +293,7 @@ uint8_t mcp23017_init(void)
 		err = mcp23017_write(IODIRB, 0xFF); // all PORTB bits are input
 		err = mcp23017_write(IODIRA, 0x00); // all PORTA bits are output
 		err = mcp23017_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
-		err = mcp23017_write(OLATA,  0xFF); // HW-bug? Have to write this first
+		err = mcp23017_write(OLATA,  0x80); // HW-bug? Have to write this first
 		err = mcp23017_write(OLATA,  0x00); // All valves are OFF at power-up
 	} // if
 	return err;	
