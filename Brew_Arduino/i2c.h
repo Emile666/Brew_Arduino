@@ -6,6 +6,9 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.7  2015/05/09 14:37:37  Emile
+  - I2C Channel & HW-address update for MCP23017 to reflect changes in HW PCB V3.01
+
   Revision 1.6  2014/11/30 20:44:45  Emile
   - Vxxx command added to write valve output bits
   - mcp23017 (16 bit I2C IO-expander) routines + defines added
@@ -73,6 +76,10 @@
 #define MCP23017_BASE   (0x40) /* CH0: 16-bit IO for Valve Outputs (Optional) */
 #define MCP23017_I2C_CH (PCA9544_CH1)
 
+#define DS2482_THLT_BASE (0x30)
+#define DS2482_TMLT_BASE (0x36)
+#define DS2482_I2C_CH    (PCA9544_CH0)
+
 #define LM92_0_BASE   (0x90) /* Not used */
 #define LM92_1_BASE   (0x92) /* CH2: LM92 */
 #define LM92_2_BASE   (0x94) /* CH3: LM92 */
@@ -102,6 +109,32 @@
 #define TRUE  (!FALSE)
 #define I2C_RETRIES (3)
 
+// DS2482 Configuration Register
+// Standard speed (1WS==0), Strong Pullup disabled (SPU==0), Active Pullup enabled (APU==1)
+#define DS2482_CONFIG (0xE1)
+#define DS2482_OW_POLL_LIMIT (200)
+
+// DS2482 commands
+#define CMD_DRST   0xF0
+#define CMD_WCFG   0xD2
+#define CMD_CHSL   0xC3
+#define CMD_SRP    0xE1
+#define CMD_1WRS   0xB4
+#define CMD_1WWB   0xA5
+#define CMD_1WRB   0x96
+#define CMD_1WSB   0x87
+#define CMD_1WT    0x78
+
+// DS2482 status bits 
+#define STATUS_1WB  0x01
+#define STATUS_PPD  0x02
+#define STATUS_SD   0x04
+#define STATUS_LL   0x08
+#define STATUS_RST  0x10
+#define STATUS_SBR  0x20
+#define STATUS_TSB  0x40
+#define STATUS_DIR  0x80
+
 // I2C slave HW responds with an ACK (0) or an NACK (1)
 enum i2c_acks {I2C_ACK, I2C_NACK};
 
@@ -115,10 +148,17 @@ unsigned char i2c_readAck(void); // read one byte from the I2C device, request m
 unsigned char i2c_readNak(void); // read one byte from the I2C device, read is followed by a stop condition
 unsigned char i2c_read(unsigned char ack); // read one byte from the I2C device
 enum i2c_acks i2c_select_channel(uint8_t ch); // Set PCA9544 channel
+
 int16_t       lm92_read(uint8_t dvc, uint8_t *err);
+
 uint8_t       mcp23017_init(void);
 uint8_t		  mcp23017_read(uint8_t reg);
 uint8_t       mcp23017_write(uint8_t reg, uint8_t data);
+
+int8_t        ds2482_reset(uint8_t addr);
+int8_t        ds2482_write_config(uint8_t addr);
+int8_t        ds2482_detect(uint8_t addr);
+uint8_t ds2482_search_triplet(uint8_t search_direction, uint8_t addr);
 
 //  Implemented as a macro, which calls either i2c_readAck or i2c_readNak
 #define i2c_read(ack)  (ack==I2C_ACK) ? i2c_readAck() : i2c_readNak(); 

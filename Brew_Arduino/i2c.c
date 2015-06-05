@@ -6,6 +6,10 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.9  2015/05/31 10:28:57  Emile
+  - Bugfix: Flowsensor reading counted rising and falling edges.
+  - Bugfix: Only valve V8 is written to at init (instead of all valves).
+
   Revision 1.8  2015/05/12 14:18:37  Emile
   - HW-bugfix: MCP23017 output latches needs to be written first with 0xFF.
 
@@ -350,3 +354,146 @@ uint8_t mcp23017_write(uint8_t reg, uint8_t data)
 	} // if
 	return err;
 } // mcp23017_write()
+
+//--------------------------------------------------------------------------
+// Perform a device reset on the DS2482
+//
+// Device Reset
+//   S AD,0 [A] DRST [A] Sr AD,1 [A] [SS] A\ P
+//  [] indicates from slave
+//  SS status byte to read to verify state
+//
+// Input: addr: the I2C address of the DS2482 to reset
+// Returns: TRUE if device was reset
+//          FALSE device not detected or failure to perform reset
+//--------------------------------------------------------------------------
+int8_t ds2482_reset(uint8_t addr)
+{
+   uint8_t err, ret;
+
+	err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+	if (!err) 
+	{   // generate I2C start + output address to I2C bus
+		err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
+	} // if
+	if (!err)
+	{
+		err  = (i2c_write(CMD_DRST)  == I2C_NACK); // write register address
+		i2c_rep_start(addr | I2C_READ);
+		ret = i2c_readNak(); // Read byte, generate I2C stop condition
+		i2c_stop();
+   } // if
+   // check for failure due to incorrect read back of status
+   if (!err && ((ret & 0xF7) == 0x10))
+   		return TRUE;
+   else return FALSE;	
+} // ds2482_reset()
+  
+//--------------------------------------------------------------------------
+// Write the configuration register in the DS2482. The configuration 
+// options are provided in the lower nibble of the provided config byte. 
+// The uppper nibble in bitwise inverted when written to the DS2482.
+//  
+// Write configuration (Case A)
+//   S AD,0 [A] WCFG [A] CF [A] Sr AD,1 [A] [CF] A\ P
+//  [] indicates from slave
+//  CF configuration byte to write
+//
+// Input: addr: the I2C address of the DS2482 to reset
+// Returns:  TRUE: config written and response correct
+//           FALSE: response incorrect
+//--------------------------------------------------------------------------
+int8_t ds2482_write_config(uint8_t addr)
+{
+   uint8_t err, read_config;
+
+	err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+	if (!err) 
+	{   // generate I2C start + output address to I2C bus
+		err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
+	} // if
+	if (!err)
+	{
+		err  = (i2c_write(CMD_WCFG)  == I2C_NACK); // write register address
+		err |= (i2c_write(DS2482_CONFIG)  == I2C_NACK); // write register address
+		i2c_rep_start(addr | I2C_READ);
+		read_config = i2c_readNak(); // Read byte, generate I2C stop condition
+		i2c_stop();
+   } // if
+   // check for failure due to incorrect read back
+   if (err || (read_config != DS2482_CONFIG))
+   {
+      ds2482_reset(addr); // handle error
+      return FALSE;
+   } // if
+   return TRUE;
+} // ds2482_write_config()
+
+//--------------------------------------------------------------------------
+// DS2428 Detect routine that performs a device reset followed by writing 
+// the default configuration settings (active pullup enabled)
+//
+// Input: addr: the I2C address of the DS2482 to reset
+// Returns: TRUE if device was detected and written
+//          FALSE device not detected or failure to write configuration byte
+//--------------------------------------------------------------------------
+int8_t ds2482_detect(uint8_t addr)
+{
+   if (!ds2482_reset(addr)) // reset the DS2482
+      return FALSE;
+
+   if (!ds2482_write_config(addr)) // write default configuration settings
+        return FALSE;
+   else return TRUE;
+} // ds2482_detect()
+
+//--------------------------------------------------------------------------
+// Use the DS2482 help command '1-Wire triplet' to perform one bit of a 1-Wire
+// search. This command does two read bits and one write bit. The write bit
+// is either the default direction (all device have same bit) or in case of 
+// a discrepancy, the 'search_direction' parameter is used. 
+//
+// Returns: The DS2482 status byte result from the triplet command
+//--------------------------------------------------------------------------
+uint8_t ds2482_search_triplet(uint8_t search_direction, uint8_t addr)
+{
+   uint8_t err, status;
+   int poll_count = 0;
+
+   // 1-Wire Triplet (Case B)
+   //   S AD,0 [A] 1WT [A] SS [A] Sr AD,1 [A] [Status] A [Status] A\ P
+   //                                         \--------/        
+   //                           Repeat until 1WB bit has changed to 0
+   //  [] indicates from slave
+   //  SS indicates byte containing search direction bit value in msbit
+   err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+   if (!err) 
+   {   // generate I2C start + output address to I2C bus
+	   err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
+   } // if
+   if (!err)
+   {
+	   err  = (i2c_write(CMD_1WT) == I2C_NACK); // write register address
+   	   err |= (i2c_write(search_direction ? 0x80 : 0x00) == I2C_NACK);
+	   i2c_rep_start(addr | I2C_READ);
+   	   // loop checking 1WB bit for completion of 1-Wire operation 
+   	   // abort if poll limit reached
+	   status = i2c_readAck(); // Read byte
+	   do
+	   {
+	     if (status & STATUS_1WB)
+	          status = i2c_readAck();
+	     else status = i2c_readNak();
+	   }
+	   while ((status & STATUS_1WB) && (poll_count++ < DS2482_OW_POLL_LIMIT));
+	   i2c_stop();
+   	   // check for failure due to poll limit reached
+   	   if (poll_count >= DS2482_OW_POLL_LIMIT)
+   	   {
+      	  ds2482_reset(addr); // handle error
+      	  return FALSE;
+   	   } // if
+   	   return status;
+   } // if
+   else return FALSE;
+} // ds2482_search_triplet()

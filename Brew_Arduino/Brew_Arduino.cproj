@@ -106,6 +106,12 @@
     <Compile Include="misc.c">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="one_wire.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="one_wire.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="pwm.c">
       <SubType>compile</SubType>
     </Compile>
