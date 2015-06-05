@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.17  2015/05/31 10:28:57  Emile
+// - Bugfix: Flowsensor reading counted rising and falling edges.
+// - Bugfix: Only valve V8 is written to at init (instead of all valves).
+//
 // Revision 1.16  2015/05/12 14:18:37  Emile
 // - HW-bugfix: MCP23017 output latches needs to be written first with 0xFF.
 //
@@ -663,7 +667,7 @@ int main(void)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number    
-	if (mcp23017_init())        // Init. IO-expander for valves (port A output, port B input)
+	if (mcp23017_init())        // Initialize IO-expander for valves (port A output, port B input)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if

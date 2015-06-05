@@ -1,3 +1,8 @@
+//-----------------------------------------------------------------------------
+// Created: 20-4-2013 22:32:11
+// Author : Emile
+// File   : $Id$
+//-----------------------------------------------------------------------------
 //------------Copyright (C) 2008 Maxim Integrated Products --------------
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -24,6 +29,8 @@
 //
 // 02-06-2015: LGT Adapted for Atmel Studio / Atmega328 / Arduino Uno
 //
+// ------------------------------------------------------------------
+// $Log$
 // ---------------------------------------------------------------------------
 //
 //  an3684.C - Application Note 3684 example implementation using CMAXQUSB.
