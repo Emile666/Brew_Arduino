@@ -4,6 +4,11 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.5  2014/05/03 11:27:44  Emile
+// - Ethernet support added for W550io module
+// - No response for L, N, P, W commands anymore
+// - All source files now have headers
+//
 // Revision 1.4  2013/07/23 19:33:18  Emile
 // - Bug-fix slope-limiter function. Tested on all measurements.
 //
@@ -31,16 +36,14 @@
 #define MAX_MA (10)
 typedef struct _ma
 {
-	int16_t T[MAX_MA]; // array with delayed values of input signal
-	uint8_t  index;    // index in T[] where to store the new input value
-	uint8_t  N;        // The order of the MA filter. Note that N < MAX_MA
-	int16_t sum;       // The running sum of the MA filter
+	float   T[MAX_MA]; // array with delayed values of input signal
+	uint8_t index;     // index in T[] where to store the new input value
+	uint8_t N;         // The order of the MA filter. Note that N < MAX_MA
+	float   sum;       // The running sum of the MA filter
 } ma;
 
-void     init_moving_average(ma *p, uint8_t N, int16_t init_val);
-int16_t  moving_average(ma *p, int16_t x);
-void     init_sample_delay(ma *p, int TD);
-double   sample_delay(ma *p, double x);
-void     slope_limiter(const int16_t lim, const int16_t Told, int16_t *Tnew);
+void  init_moving_average(ma *p, uint8_t N, float init_val);
+float moving_average(ma *p, float x);
+void  slope_limiter(const int16_t lim, const int16_t Told, int16_t *Tnew);
 
 #endif

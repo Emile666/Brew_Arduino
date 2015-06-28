@@ -6,8 +6,24 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.2  2015/06/05 13:51:04  Emile
+// - Headers added to one_wire sources
+//
 // ---------------------------------------------------------------------------
 #include <inttypes.h>
+
+#define OW_SEARCH_ROM_CMD        (0xF0)
+#define OW_READ_ROM_CMD			 (0x33)
+#define OW_MATCH_ROM_CMD		 (0x55)
+#define OW_SKIP_ROM_CMD			 (0xCC)
+#define OW_ALARM_SEARCH_CMD		 (0xEC)
+
+#define OW_CONVERT_T_FCMD		 (0x44)
+#define OW_WRITE_SCRATCHPAD_FCMD (0x4E)
+#define OW_READ_SCRATCHPAD_FCMD  (0xBE)
+#define OW_COPY_SCRATCHPAD_FCMD  (0x48)
+#define OW_RECALL_EE_FCMD        (0xB8)
+#define OW_READ_PSUP_FCMD        (0xB4)
 
 // 1-Wire API for DS2482 function prototypes
 uint8_t OW_reset(uint8_t addr);
@@ -24,6 +40,8 @@ uint8_t OW_verify(uint8_t addr);
 void    OW_target_setup(uint8_t family_code);
 void    OW_family_skip_setup(void);
 uint8_t OW_search(uint8_t addr);
+uint8_t ds18b20_start_conversion(uint8_t i2c_addr);
+int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err);
 
 // Helper functions
 uint8_t calc_crc8(uint8_t data);

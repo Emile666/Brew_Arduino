@@ -6,6 +6,9 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.10  2015/06/05 13:46:33  Emile
+  - Support for one-wire masters (DS2482) added (not tested yet)
+
   Revision 1.9  2015/05/31 10:28:57  Emile
   - Bugfix: Flowsensor reading counted rising and falling edges.
   - Bugfix: Only valve V8 is written to at init (instead of all valves).
@@ -32,18 +35,15 @@
 #include "i2c.h"
 #include "delay.h"         /* for delay_msec() */
 
-/* I2C clock in Hz */
-#define SCL_CLOCK  50000L
-
 /*************************************************************************
  Initialization of the I2C bus interface. Need to be called only once
 *************************************************************************/
-void i2c_init(void)
+void i2c_init(uint8_t clk)
 {
-  /* initialize TWI clock: 100 kHz clock, TWPS = 0 => prescaler = 1 */
+  /* initialize TWI clock: TWPS = 0x01 => prescaler = 4 */
   
-  TWSR = 0;                         /* no pre-scaler */
-  TWBR = ((F_CPU/SCL_CLOCK)-16)/2;  /* must be > 10 for stable operation */
+  TWSR = 0x01; /* pre-scaler = 4 */
+  TWBR = clk;  /* must be > 10 for stable operation */
 } /* i2c_init() */
 
 /*************************************************************************	
@@ -232,15 +232,16 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
               15   14  13 12      3   2    1   0
              Sign MSB B10 B9 ... B0 Crit High Low
   Variables:
-       dvc : 0 = Read from the LM92 at 0x92/0x93 (This is the HLT Temp.)
-             1 = Read from the LM92 at 0x94/0x95 (This is the MLT Temp.)
-  Returns  : The temperature from the LM92 in a signed Q8.4 format
+       dvc : THLT = Read from the LM92 at 0x92/0x93 (This is the HLT Temp.)
+             TMLT = Read from the LM92 at 0x94/0x95 (This is the MLT Temp.)
+  Returns  : The temperature from the LM92 in a signed Q8.7 format.
+             Q8.7 is chosen here for accuracy reasons when filtering.
   ------------------------------------------------------------------*/
 {
    uint8_t  buffer[2]; // array to store data from i2c_read()
    uint16_t temp_int;  // the temp. from the LM92 as an integer
    uint8_t  sign;      // sign of temperature
-   int16_t  temp = 0;  // the temp. from the LM92 as a double
+   int16_t  temp = 0;  // the temp. from the LM92 as an int
    uint8_t  adr;       // i2c address
        
    // Start with selecting the proper channel on the PCA9544
@@ -273,14 +274,15 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
          temp_int &= ~LM92_SIGNb;        // Clear sign bit
          temp_int  = LM92_FS - temp_int; // Convert two complement number
       } // if
-      temp = temp_int >> 3;
+      //temp = temp_int >> 3;
+	  temp = temp_int; // without shifting! Returns Q8.7 format
       if (sign)
       {
          temp = -temp; // negate number
       } // if
 	  i2c_stop();
    } // else
-   return temp;     // Return value now in °C * 16
+   return temp;     // Return value now in °C << 7
 } // lm92_read()
 
 uint8_t mcp23017_init(void)
@@ -481,11 +483,10 @@ uint8_t ds2482_search_triplet(uint8_t search_direction, uint8_t addr)
 	   status = i2c_readAck(); // Read byte
 	   do
 	   {
-	     if (status & STATUS_1WB)
-	          status = i2c_readAck();
-	     else status = i2c_readNak();
+	     if (status & STATUS_1WB) status = i2c_readAck();
 	   }
 	   while ((status & STATUS_1WB) && (poll_count++ < DS2482_OW_POLL_LIMIT));
+	   status = i2c_readNak();
 	   i2c_stop();
    	   // check for failure due to poll limit reached
    	   if (poll_count >= DS2482_OW_POLL_LIMIT)

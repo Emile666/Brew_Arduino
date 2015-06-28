@@ -31,6 +31,9 @@
 //
 // ------------------------------------------------------------------
 // $Log$
+// Revision 1.2  2015/06/05 13:51:04  Emile
+// - Headers added to one_wire sources
+//
 // ---------------------------------------------------------------------------
 //
 //  an3684.C - Application Note 3684 example implementation using CMAXQUSB.
@@ -82,11 +85,10 @@ uint8_t OW_reset(uint8_t addr)
 		status = i2c_readAck(); // Read byte
 	    do
 	    {
-	      if (status & STATUS_1WB)
-	      	   status = i2c_readAck();
-	      else status = i2c_readNak();
+	      if (status & STATUS_1WB) status = i2c_readAck();
 	    }
 	    while ((status & STATUS_1WB) && (poll_count++ < DS2482_OW_POLL_LIMIT));
+		status = i2c_readNak();
 	    i2c_stop();
    		// check for failure due to poll limit reached
    		if (poll_count >= DS2482_OW_POLL_LIMIT)
@@ -142,11 +144,10 @@ uint8_t OW_touch_bit(uint8_t sendbit, uint8_t addr)
 		status = i2c_readAck(); // Read byte
 	    do
 	    {
-	      if (status & STATUS_1WB)
-	      	   status = i2c_readAck();
-	      else status = i2c_readNak();
+	      if (status & STATUS_1WB) status = i2c_readAck();
 	    }
 	    while ((status & STATUS_1WB) && (poll_count++ < DS2482_OW_POLL_LIMIT));
+	    status = i2c_readNak();
 	    i2c_stop();
    		// check for failure due to poll limit reached
    		if (poll_count >= DS2482_OW_POLL_LIMIT)
@@ -219,11 +220,10 @@ uint8_t OW_write_byte(uint8_t sendbyte, uint8_t addr)
 	   status = i2c_readAck(); // Read byte
 	   do
 	   {
-	     if (status & STATUS_1WB)
-	          status = i2c_readAck();
-	     else status = i2c_readNak();
+	     if (status & STATUS_1WB) status = i2c_readAck();
 	   }
 	   while ((status & STATUS_1WB) && (poll_count++ < DS2482_OW_POLL_LIMIT));
+	   status = i2c_readNak();
 	   i2c_stop();
    	   // check for failure due to poll limit reached
    	   if (poll_count >= DS2482_OW_POLL_LIMIT)
@@ -269,11 +269,10 @@ uint8_t OW_read_byte(uint8_t addr)
 	   status = i2c_readAck(); // Read byte
 	   do
 	   {
-	     if (status & STATUS_1WB)
-	          status = i2c_readAck();
-	     else status = i2c_readNak();
+	     if (status & STATUS_1WB) status = i2c_readAck();
 	   }
 	   while ((status & STATUS_1WB) && (poll_count++ < DS2482_OW_POLL_LIMIT));
+	   status = i2c_readNak();
    	   // check for failure due to poll limit reached
    	   if (poll_count >= DS2482_OW_POLL_LIMIT)
    	   {
@@ -589,3 +588,62 @@ uint8_t calc_crc8(uint8_t data)
    return crc8;
 } // calc_crc8()
 
+//--------------------------------------------------------------------------
+// Start a temperature conversion. At the highest resolution 
+// (12-bit, default at power-up), it takes approx. 750 msec.
+//
+//     i2c_addr : DS2482 base address where DS18B20 is connection to
+// Return TRUE  : device found, conversion started
+//        FALSE : device not found
+//--------------------------------------------------------------------------
+uint8_t ds18b20_start_conversion(uint8_t i2c_addr)
+{
+	uint8_t rval;
+	
+	rval = OW_reset(i2c_addr);
+	if (rval == TRUE)
+	{	// DS18B20 is present
+	    OW_write_byte(OW_SKIP_ROM_CMD  , i2c_addr); // only 1 sensor, use SKIP ROM command
+		OW_write_byte(OW_CONVERT_T_FCMD, i2c_addr); // Start temperature conversion
+	} // if
+	return rval;
+} // ds18b20_start_conversion()
+
+//--------------------------------------------------------------------------
+// Read a temperature from the DS18B20. At the highest resolution
+// (12-bit, default at power-up), it takes approx. 750 msec.
+//
+//     i2c_addr : DS2482 base address where DS18B20 is connection to
+// Return TRUE  : device found, conversion started
+//        FALSE : device not found
+// Variables:
+//      dvc : THLT = Read from the HLT DS18B20 sensor
+//            TMLT = Read from the MLT DS18B20 sensor
+// Returns  : The temperature from the DS18B20 in a signed Q8.7 format.
+//            Q8.7 is chosen here for accuracy reasons when filtering.
+//--------------------------------------------------------------------------
+int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err)
+{
+    int16_t  temp = 0;   // the Temp. from the DS18B20 as an int
+    uint8_t  scratch[9]; // Scratchpad of DS18B20
+	uint8_t  i;
+	
+	*err = !OW_reset(i2c_addr); // false: error
+	if (!*err)
+	{
+		OW_write_byte(OW_SKIP_ROM_CMD        , i2c_addr); // only 1 sensor, use SKIP ROM command
+		OW_write_byte(OW_READ_SCRATCHPAD_FCMD, i2c_addr); // Read scratchpad
+		crc8 = 0x00;
+		for (i = 0; i < 9; i++)
+		{
+			scratch[i] = OW_read_byte(i2c_addr);
+			if (i < 8) calc_crc8(scratch[i]);
+			//sprintf(s2,"%02X ",scratch[i]); xputs(s2);
+		} // for
+		*err = (crc8 != scratch[8]);
+		//if (*err) xputs("crc error\n");
+		temp   = ((int16_t)scratch[1] << 8) | scratch[0];
+		temp <<= 3; // From Q8.4 to Q8.7
+	} // if	
+	return temp;    // Return value now in °C << 7
+} // ds18b20_read()

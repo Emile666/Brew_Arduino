@@ -6,6 +6,9 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.8  2015/06/05 13:46:33  Emile
+  - Support for one-wire masters (DS2482) added (not tested yet)
+
   Revision 1.7  2015/05/09 14:37:37  Emile
   - I2C Channel & HW-address update for MCP23017 to reflect changes in HW PCB V3.01
 
@@ -25,6 +28,30 @@
 #ifndef _I2C_H
 #define _I2C_H   1
 #include <avr/io.h>
+
+//-------------------------------------------
+// Set the prescaler (TWSR register) to 0x01, 
+// so that the prescaler value equals 4.
+// 100 kHz: TWBR = 18 (should be > 10)
+//  10 kHz: TWBR = 198 (should be < 255)
+//-------------------------------------------
+#define SCL_CLK_10KHZ  (((F_CPU/10000)-16)/8)
+#define SCL_CLK_20KHZ  (((F_CPU/20000)-16)/8)
+#define SCL_CLK_30KHZ  (((F_CPU/30000)-16)/8)
+#define SCL_CLK_40KHZ  (((F_CPU/40000)-16)/8)
+#define SCL_CLK_50KHZ  (((F_CPU/50000)-16)/8)
+#define SCL_CLK_60KHZ  (((F_CPU/60000)-16)/8)
+#define SCL_CLK_70KHZ  (((F_CPU/70000)-16)/8)
+#define SCL_CLK_80KHZ  (((F_CPU/80000)-16)/8)
+#define SCL_CLK_90KHZ  (((F_CPU/90000)-16)/8)
+#define SCL_CLK_100KHZ (((F_CPU/100000)-16)/8)
+
+#if SCL_CLK_100KHZ < 11
+#error "SCL_CLK_100KHZ value too small"
+#endif
+#if SCL_CLK_10KHZ > 255
+#error "SCL_CLK_10KHZ value too big"
+#endif
 
 //-------------------------------------------------------------------------
 // MCP23017 16-BIT IO Expander: Register names when BANK == 1
@@ -60,6 +87,8 @@
 //-------------------------------------------------------------------------
 // PCA9544 I2C Multiplexer
 // Channel 0: CON14 SPI_I2C_BUS (as of HW PCB V3.01)
+//            DS2482   (0x30)   (as of HW PCB V3.03)
+//            DS2482   (0x36)   (as of HW PCB V3.03)
 // Channel 1: MCP23017 (0x40)   (as of HW PCB V3.01)
 // Channel 2: I2C for LM92_0
 // Channel 3: I2C for LM92_1
@@ -138,7 +167,7 @@
 // I2C slave HW responds with an ACK (0) or an NACK (1)
 enum i2c_acks {I2C_ACK, I2C_NACK};
 
-void          i2c_init(void); // Initializes the I2C Interface. Needs to be called only once
+void          i2c_init(uint8_t clk); // Initializes the I2C Interface. Needs to be called only once
 void          i2c_stop(void); // Terminates the data transfer and releases the I2C bus
 enum i2c_acks i2c_start(unsigned char addr); // Issues a start condition and sends address and transfer direction
 enum i2c_acks i2c_rep_start(unsigned char addr); // Issues a repeated start condition and sends address and transfer direction
@@ -158,7 +187,7 @@ uint8_t       mcp23017_write(uint8_t reg, uint8_t data);
 int8_t        ds2482_reset(uint8_t addr);
 int8_t        ds2482_write_config(uint8_t addr);
 int8_t        ds2482_detect(uint8_t addr);
-uint8_t ds2482_search_triplet(uint8_t search_direction, uint8_t addr);
+uint8_t       ds2482_search_triplet(uint8_t search_direction, uint8_t addr);
 
 //  Implemented as a macro, which calls either i2c_readAck or i2c_readNak
 #define i2c_read(ack)  (ack==I2C_ACK) ? i2c_readAck() : i2c_readNak(); 

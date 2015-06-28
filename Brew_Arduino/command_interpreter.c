@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.15  2015/05/31 10:28:57  Emile
+// - Bugfix: Flowsensor reading counted rising and falling edges.
+// - Bugfix: Only valve V8 is written to at init (instead of all valves).
+//
 // Revision 1.14  2014/11/30 20:44:45  Emile
 // - Vxxx command added to write valve output bits
 // - mcp23017 (16 bit I2C IO-expander) routines + defines added
@@ -67,9 +71,16 @@
 #include "command_interpreter.h"
 #include "misc.h"
 #include "Udp.h"
+#include "one_wire.h"
+
+uint16_t t_1; // Measured #clock-ticks of 50 usec. (TMR1 frequency)
+uint16_t t_2;
+uint16_t t_m = 0;
 
 extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed
 extern unsigned int localPort;   // local port to listen on 	
+extern uint8_t      ROM_NO[];    // One-wire hex-address
+extern uint8_t      crc8;
 
 extern uint8_t    system_mode;         // from Brew_Arduino.c
 extern bool       ethernet_WIZ550i;
@@ -96,17 +107,17 @@ extern uint16_t   vmlt_max_10;         // VMLT MAX Volume in E-1 L
 extern int16_t    vmlt_slope_10;       // VMLT slope-limiter in E-1 L/sec.
 
 //------------------------------------------------------
-// The extension _16 indicates a signed Q8.4 format!
+// The extension _87 indicates a signed Q8.7 format!
 // This is used for both the HLT and MLT temperatures
 //------------------------------------------------------
-extern int16_t    thlt_temp_16;        // THLT Temperature in °C * 16
-extern int16_t    thlt_offset_16;      // THLT offset-correction in °C * 16
-extern int16_t    thlt_slope_16;       // THLT slope-limiter is 2 °C/sec. * 16
+extern int16_t    thlt_temp_87;        // THLT Temperature in °C * 128
+extern int16_t    thlt_offset_87;      // THLT offset-correction in °C * 128
+extern int16_t    thlt_slope_87;       // THLT slope-limiter is °C/2 sec. * 128
 extern uint8_t    thlt_err;
 
-extern int16_t    tmlt_temp_16;        // TMLT Temperature in °C * 16
-extern int16_t    tmlt_offset_16;      // TMLT offset-correction in °C * 16
-extern int16_t    tmlt_slope_16;       // TMLT slope-limiter in °C/sec.
+extern int16_t    tmlt_temp_87;        // TMLT Temperature in °C * 128
+extern int16_t    tmlt_offset_87;      // TMLT offset-correction in °C * 128
+extern int16_t    tmlt_slope_87;       // TMLT slope-limiter in °C/2 sec. * 128
 extern uint8_t    tmlt_err;
 
 extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
@@ -341,17 +352,17 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 		case 12: // Slope-Limiter for MLT Volume measurement [E-1 L/sec.]
 				vmlt_slope_10 = val;
 				break;
-		case 13: // Offset (Q8.4) to add to HLT Temp. measurement [°C/16]
-				thlt_offset_16 = val;
+		case 13: // Offset (Q8.7) to add to HLT Temp. measurement [°C/128]
+				thlt_offset_87 = val;
 				break;
-		case 14: // Slope Limiter (Q8.4) for HLT Temp. measurement [°C/(16.sec.)]
-				thlt_slope_16 = val;
+		case 14: // Slope Limiter (Q8.7) for HLT Temp. measurement [°C/(128.2sec.)]
+				thlt_slope_87 = val;
 				break;
-		case 15: // Offset (Q8.4) to add to MLT Temp. measurement [°C/16]
-				tmlt_offset_16 = val;
+		case 15: // Offset (Q8.7) to add to MLT Temp. measurement [°C/128]
+				tmlt_offset_87 = val;
 				break;
-		case 16: // Slope Limiter (Q8.4) for MLT Temp. measurement [°C/(16.sec.)]
-				tmlt_slope_16 = val;
+		case 16: // Slope Limiter (Q8.7) for MLT Temp. measurement [°C/(128.2sec.)]
+				tmlt_slope_87 = val;
 				break;
 		default: break;
 	} // switch
@@ -365,6 +376,8 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
    - A3 / A4      : Read Temperature sensor LM92: THLT / TMLT temperature
    - A5           : Read flow sensor connected between HLT to MLT
    - A6           : Read flow sensor connected between MLT to boil-kettle
+
+   - D0 / D1      : Disable (0) or Enable (1) Debug-Mode
 
    - E0 / E1      : Ethernet with WIZ550io Disabled / Enabled
 
@@ -404,7 +417,7 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 uint8_t execute_single_command(char *s, bool rs232_udp)
 {
    uint8_t  num  = atoi(&s[1]); // convert number in command (until space is found)
-   uint8_t  rval = NO_ERR, err;
+   uint8_t  rval = NO_ERR, err, i;
    uint16_t temp, frac_16;
    char     s2[40]; // Used for printing to RS232 port
    
@@ -437,11 +450,11 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							}
 							else
 							{
-								temp     = thlt_temp_16 >> 4;     // The integer part of THLT
-								frac_16  = thlt_temp_16 & 0x000f; // The fractional part of THLT
-								frac_16 *= 50;                    // 100 / 16 = 50 / 8
-								frac_16 +=  4;                    // 0.5 for rounding
-								frac_16 >>= 3;                    // SHR 3 = divide by 8
+								temp     = thlt_temp_87 >> 7;     // The integer part of THLT
+								frac_16  = thlt_temp_87 & 0x007f; // The fractional part of THLT
+								frac_16 *= 25;                    // 100 / 128 = 25 / 32
+								frac_16 += 16;                    // 0.5 for rounding
+								frac_16 >>= 5;                    // SHR 5 = divide by 32
 								sprintf(s2,"Thlt=%d.%02d\n",temp,frac_16);
 							} // else							
 							break;
@@ -452,11 +465,11 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							}
 							else
 							{
-								temp     = tmlt_temp_16 >> 4;     // The integer part of TMLT
-								frac_16  = tmlt_temp_16 & 0x000f; // The fractional part of TMLT
-								frac_16 *= 50;                    // 100 / 16 = 50 / 8
-								frac_16 +=  4;                    // 0.5 for rounding
-								frac_16 >>= 3;                    // SHR 3 = divide by 8
+								temp     = tmlt_temp_87 >> 7;     // The integer part of TMLT
+								frac_16  = tmlt_temp_87 & 0x007f; // The fractional part of TMLT
+								frac_16 *= 25;                    // 100 / 128 = 25 / 32
+								frac_16 += 16;                    // 0.5 for rounding
+								frac_16 >>= 5;                    // SHR 5 = divide by 32
 								sprintf(s2,"Tmlt=%d.%02d\n",temp,frac_16);
 							} // else							
 							break;
@@ -566,8 +579,8 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							             vmlt_offset_10,vmlt_max_10,vmlt_slope_10); 
 				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 sprintf(s2,"TxLT:o=%d,s=%d,o=%d,s=%d\n",
-									     thlt_offset_16,thlt_slope_16,
-										 tmlt_offset_16,tmlt_slope_16);
+									     thlt_offset_87,thlt_slope_87,
+										 tmlt_offset_87,tmlt_slope_87);
 				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 break;
 					 case 2: // List all I2C devices
@@ -579,7 +592,33 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							 break;
 					 case 3: // List all tasks
 							 list_all_tasks(rs232_udp); 
-							 break;				 
+							 break;	
+					 case 4: // DEBUG: Time Measurements
+							 rval = NO_ERR;
+							 break;
+					 case 5: // DEBUG: One-Wire Find Devices
+							 rval = OW_first(DS2482_THLT_BASE); // Find ROM ID of HLT DS18B20
+							 if (rval) 
+							 {
+								 for (i= 0; i < 8; i++)
+								 {
+									 sprintf(s2,"%02X ",ROM_NO[i]); 
+									 xputs(s2);
+								 } // for								 
+							 } // if
+							 xputs("\n");							 
+							 rval = OW_first(DS2482_TMLT_BASE); // Find ROM ID of HLT DS18B20
+							 if (rval)
+							 {
+								 for (i= 0; i < 8; i++)
+								 {
+									 sprintf(s2,"%02X ",ROM_NO[i]);
+									 xputs(s2);
+								 } // for
+							 } // if
+							 rval = NO_ERR;
+							 xputs("\n");
+							 break;
 					 default: rval = ERR_NUM;
 							  break;
 				 } // switch

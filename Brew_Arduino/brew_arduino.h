@@ -8,6 +8,10 @@
 				 R1.8 <-> ebrew R1.66
   ------------------------------------------------------------------
   $Log$
+  Revision 1.10  2015/05/31 10:28:57  Emile
+  - Bugfix: Flowsensor reading counted rising and falling edges.
+  - Bugfix: Only valve V8 is written to at init (instead of all valves).
+
   Revision 1.9  2014/11/09 15:38:34  Emile
   - PUMP_LED removed from PD2, PUMP has same function
   - Interface for 2nd waterflow sensor added to PD2
@@ -99,8 +103,12 @@
 #define EL_HTR_OFF (1)
 #define EL_HTR_ON  (2)
 
+// INIT_TEMP  20 °C
+// INIT_VOL10 80 E-1 L
+// LM35_CONV: 11000 E-2 °C / 1023
 #define INIT_TEMP  (20)
-#define INIT_VOL    (8)
+#define INIT_VOL10 (80)
+#define LM35_CONV  (10.75268817)
 
 //---------------------------------------------------
 // Q = 5.5 Hz for 1 L, 11 pulses per L per sec.

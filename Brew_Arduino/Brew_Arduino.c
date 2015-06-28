@@ -4,6 +4,9 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.18  2015/06/05 13:51:04  Emile
+// - Headers added to one_wire sources
+//
 // Revision 1.17  2015/05/31 10:28:57  Emile
 // - Bugfix: Flowsensor reading counted rising and falling edges.
 // - Bugfix: Only valve V8 is written to at init (instead of all valves).
@@ -76,6 +79,7 @@
 #include "w5500.h"
 #include "Ethernet.h"
 #include "Udp.h"
+#include "one_wire.h"
 
 extern char rs232_inbuf[];
 
@@ -127,7 +131,7 @@ ma       vhlt_ma;                   // struct for VHLT moving_average filter
 uint16_t vhlt_old_10;               // Previous value of vhlt_10
 uint16_t vhlt_10;                   // VHLT Volume in E-1 L
 int16_t  vhlt_offset_10 = 80;       // VHLT offset-correction in E-1 L
-uint16_t vhlt_max_10    = 1100;     // VHLT MAX Volume in E-1 L
+uint16_t vhlt_max_10    = 1400;     // VHLT MAX Volume in E-1 L
 int16_t  vhlt_slope_10  = 10;       // VHLT slope-limiter is 1 L/sec.
 
 //-----------------------------------
@@ -144,21 +148,25 @@ int16_t  vmlt_slope_10  = 10;       // VMLT slope-limiter is 1 L/sec.
 // THLT parameters and variables
 //-----------------------------------
 ma       thlt_ma;                   // struct for THLT moving_average filter
-int16_t  thlt_old_16;               // Previous value of thlt_temp_16
-int16_t  thlt_temp_16;              // THLT Temperature in °C * 16
-int16_t  thlt_offset_16 = 0;        // THLT offset-correction in °C * 16
-int16_t  thlt_slope_16  = 32;       // THLT slope-limiter is 2 °C/sec. * 16
-uint8_t  thlt_err       = 0;
+int16_t  thlt_old_87;               // Previous value of thlt_temp_87
+int16_t  thlt_temp_87;              // THLT Temperature from LM92 in °C * 128
+int16_t  thlt_ow_87;                // THLT Temperature from DS18B20 in °C * 128
+int16_t  thlt_offset_87 = 0;        // THLT offset-correction in °C * 128
+int16_t  thlt_slope_87  = 512;      // THLT slope-limiter is 4 °C/ 2 sec. * 128
+uint8_t  thlt_err       = 0;        // 1 = Read error from LM92
+uint8_t  thlt_ow_err    = 0;	    // 1 = Read error from DS18B20
  
 //-----------------------------------
 // TMLT parameters and variables
 //-----------------------------------
 ma       tmlt_ma;                   // struct for TMLT moving_average filter
-int16_t  tmlt_old_16;               // Previous value of tmlt_temp
-int16_t  tmlt_temp_16;              // TMLT Temperature in °C * 16
-int16_t  tmlt_offset_16 = 16;       // TMLT offset-correction in °C * 16
-int16_t  tmlt_slope_16  = 32;       // TMLT slope-limiter is 2 °C/sec. * 16
-uint8_t  tmlt_err       = 0;
+int16_t  tmlt_old_87;               // Previous value of tmlt_temp_87
+int16_t  tmlt_temp_87;              // TMLT Temperature from LM92 in °C * 128
+int16_t  tmlt_ow_87;                // TMLT Temperature from DS18B20 in °C * 128
+int16_t  tmlt_offset_87 = 0;        // TMLT offset-correction in °C * 128
+int16_t  tmlt_slope_87  = 512;      // TMLT slope-limiter is 4 °C/ 2 sec. * 128
+uint8_t  tmlt_err       = 0;        // 1 = Read error from LM92
+uint8_t  tmlt_ow_err    = 0;	    // 1 = Read error from DS18B20
 
 unsigned long    t2_millis     = 0UL;
 unsigned long    flow_hlt_mlt  = 0UL;
@@ -354,7 +362,7 @@ void pwm_2_time(void)
              the LM35 temperature sensor. This sensor is connected
 			 to ADC0. The LM35 outputs 10 mV/°C ; VREF=1.1 V,
 			 therefore => Max. Temp. = 11000 E-2 °C
-			 Conversion constant = 11000 / 1023 = 1000/93
+			 Conversion constant = 11000 / 1023 = 10.7526882
   Variables: lm35_temp    : contains temperature in E-2 °C
 			 lm35_frac    : contains fractional temperature in E-2 °C
 			 lm35_ma      : moving-average filter struct for lm35_temp
@@ -365,11 +373,10 @@ void pwm_2_time(void)
   --------------------------------------------------------------------*/
 void lm35_task(void)
 {
-    int16_t tmp; // temporary variable
+    float tmp; // temporary variable
 	
-	tmp       = adc_read(LM35);
-	tmp       = (uint16_t)((unsigned long)tmp * 1000 / 93);
-	lm35_temp = moving_average(&lm35_ma, tmp);
+	tmp       = adc_read(LM35) * LM35_CONV;
+	lm35_temp = (uint16_t)moving_average(&lm35_ma, tmp);
 	if (triac_too_hot)
 	{  // reset hysteresis if temp < lower limit
 		triac_too_hot = (lm35_temp >= triac_llimit);	
@@ -411,12 +418,12 @@ void vhlt_task(void)
 {
     int16_t tmp; // temporary variable
 	
-	vhlt_old_10 = vhlt_10; // copy previous value of vhlt
 	tmp         = adc_read(VHLT);
 	tmp         = (uint16_t)((unsigned long)vhlt_max_10 * tmp / 1023);
 	tmp        += vhlt_offset_10;
+	vhlt_old_10 = vhlt_10; // copy previous value of vhlt
 	slope_limiter(vhlt_slope_10, vhlt_old_10, &tmp);
-	vhlt_10   = moving_average(&vhlt_ma,tmp);
+	vhlt_10     = (uint16_t)moving_average(&vhlt_ma,(float)tmp);
 } // vhlt_task()
 
 /*--------------------------------------------------------------------
@@ -435,67 +442,134 @@ void vmlt_task(void)
 {
     int16_t tmp; // temporary variable
 	
-	vmlt_old_10 = vmlt_10; // copy previous value of vmlt
 	tmp         = adc_read(VMLT);
 	tmp         = (uint16_t)((unsigned long)vmlt_max_10 * tmp / 1023);
 	tmp        += vmlt_offset_10;
+	vmlt_old_10 = vmlt_10; // copy previous value of vmlt
 	slope_limiter(vmlt_slope_10, vmlt_old_10, &tmp);
-	vmlt_10   = moving_average(&vmlt_ma,tmp);
+	vmlt_10     = (uint16_t)moving_average(&vmlt_ma,(float)tmp);
 } // vmlt_task()
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperature from
-             the LM92 temperature sensor. Since the LM92 has 4
-			 fractional bits (1/2, 1/4, 1/8, 1/16), all values are
-			 stored in a signed Q8.4 format. All variables with this
-			 format have the extension _16.
+             the Hot-Liquid Tun (HLT). The first sensor to read is the
+			 LM92 (I2C sensor). If that one is not present, the DS18B20
+			 (One-Wire sensor) is tried. Since both sensors have 4
+			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
+			 would be sufficient. However all variables are stored in a
+			 Q8.7 format for accuracy reasons when filtering. All variables 
+			 with this format have the extension _87.
 			 The HLT temperature is both filtered and slope-limited.
-  Variables: thlt_old_16   : previous value of thlt_temp_16
-			 thlt_offset_16: the correction in temperature in °C
+			 This task is called every 2 seconds and uses the output from
+			 ow_task(), which delivers a new DS18B20 reading every 2 seconds.
+  Variables: thlt_old_87   : previous value of thlt_temp_87
+			 thlt_offset_87: the correction in temperature in °C
+			 tmlt_slope_87 : the slope-limit in °C/sec.
+			 thlt_err      : 1 = error reading from LM92 (I2C)
+			 thlt_ow_err   : 1 = error reading from DS18B20 (One-Wire)
+			 thlt_ow_87    : Temperature value from DS18B20 (One-Wire)
 			 thlt_ma       : the moving-average filter struct for THLT
-			 thlt_temp_16  : the processed HLT temperature in °C
+			 thlt_temp_87  : the processed HLT temperature in °C
   Returns  : -
   --------------------------------------------------------------------*/
 void thlt_task(void)
 {
-	int16_t  tmp; // temporary variable (signed Q8.4 format)
+	int16_t  tmp; // temporary variable (signed Q8.7 format)
 	
-	thlt_old_16 = thlt_temp_16; // copy previous value of thlt_temp
-	tmp         = lm92_read(THLT, &thlt_err); // returns a signed Q8.4 format
+	thlt_old_87 = thlt_temp_87; // copy previous value of thlt_temp
+	tmp         = lm92_read(THLT, &thlt_err); // returns a signed Q8.7 format
+	if (thlt_err && !thlt_ow_err)
+	{   // I2C sensor (LM92) returned an error, one-wire sensor is ok
+		thlt_err = FALSE; // reset error
+		tmp      = thlt_ow_87;
+	} // if
 	if (!thlt_err) 
-	{	
-		tmp += thlt_offset_16;
-		slope_limiter(thlt_slope_16, thlt_old_16, &tmp);
-		thlt_temp_16 = moving_average(&thlt_ma, tmp);
-	} // else
+	{	// filter if either I2C or One-Wire has been read successfully
+		tmp += thlt_offset_87; // add offset
+		slope_limiter(thlt_slope_87, thlt_old_87, &tmp);
+		thlt_temp_87 = (int16_t)(moving_average(&thlt_ma, (float)tmp) + 0.5);
+	} // if
 } // thlt_task()
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperature from
-             the LM92 temperature sensor. Since the LM92 has 4
-			 fractional bits (1/2, 1/4, 1/8, 1/16), all values are
-			 stored in a signed Q8.4 format. All variables with this
-			 format have the extension _16.
+			 the Mash-Lauter Tun (MLT). The first sensor to read is the
+		     LM92 (I2C sensor). If that one is not present, the DS18B20
+		     (One-Wire sensor) is tried. Since both sensors have 4
+			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
+			 would be sufficient. However all variables are stored in a
+			 Q8.7 format for accuracy reasons when filtering. All variables
+			 with this format have the extension _87.
 			 The MLT temperature is both filtered and slope-limited.
-  Variables: tmlt_old_16   : previous value of tmlt_temp_16
-			 tmlt_offset_16: the correction in temperature in °C
+			 This task is called every 2 seconds and uses the output from
+			 ow_task(), which delivers a new DS18B20 reading every 2 seconds.
+  Variables: tmlt_old_87   : previous value of tmlt_temp_87
+			 tmlt_offset_87: the correction in temperature in °C
+			 tmlt_slope_87 : the slope-limit in °C/sec.
+			 tmlt_err      : 1 = error reading from LM92 (I2C)
+			 tmlt_ow_err   : 1 = error reading from DS18B20 (One-Wire)
+			 tmlt_ow_87    : Temperature value from DS18B20 (One-Wire)
 			 tmlt_ma       : the moving-average filter struct for TMLT
-			 tmlt_temp_16  : the processed MLT temperature in °C
+			 tmlt_temp_87  : the processed MLT temperature in °C
   Returns  : -
   --------------------------------------------------------------------*/
 void tmlt_task(void)
 {
-	int16_t tmp; // temporary variable (signed Q8.4 format)
+	int16_t tmp; // temporary variable (signed Q8.7 format)
 	
-	tmlt_old_16 = tmlt_temp_16; // copy previous value of tmlt_temp
-	tmp         = lm92_read(TMLT, &tmlt_err); // returns a signed Q8.4 format
+	tmlt_old_87 = tmlt_temp_87; // copy previous value of tmlt_temp
+	tmp         = lm92_read(TMLT, &tmlt_err); // returns a signed Q8.7 format
+	if (tmlt_err && !tmlt_ow_err)
+	{   // I2C sensor (LM92) returned an error, one-wire sensor is ok
+		tmlt_err = FALSE; // reset error
+		tmp      = tmlt_ow_87;
+	} // if
 	if (!tmlt_err)
-	{
-		tmp += tmlt_offset_16;
-		slope_limiter(tmlt_slope_16, tmlt_old_16, &tmp);
-		tmlt_temp_16 = moving_average(&tmlt_ma, tmp);
+	{	// filter if either I2C or One-Wire has been read successfully
+		tmp += tmlt_offset_87; // add offset
+		slope_limiter(tmlt_slope_87, tmlt_old_87, &tmp);
+		tmlt_temp_87 = (int16_t)(moving_average(&tmlt_ma, (float)tmp) + 0.5);
 	} // else
 } // tmlt_task()
+
+/*--------------------------------------------------------------------
+  Purpose  : This is the task that processes the temperatures from
+			 the One-Wire devices. There are two sensors, each has its
+			 own DS2482 I2C-to-One-Wire bridge. Since both sensors have 4
+			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
+			 would be sufficient. However all variables are stored in a
+			 Q8.7 format for accuracy reasons when filtering. All variables
+			 with this format have the extension _87.
+			 This task is called every second.
+  Variables: tmlt_old_87   : previous value of tmlt_temp_87
+			 tmlt_offset_87: the correction in temperature in °C
+			 tmlt_slope_87 : the slope-limit in °C/sec.
+			 tmlt_ma       : the moving-average filter struct for TMLT
+			 tmlt_temp_87  : the processed MLT temperature in °C
+  Returns  : -
+  --------------------------------------------------------------------*/
+void ow_task(void)
+{
+	static int ow_std = 0; // internal state
+	
+	switch (ow_std)
+	{   
+		case 0: // Init.
+				ds18b20_start_conversion(DS2482_TMLT_BASE); // start conversion
+				ow_std = 1;
+				break;
+		case 1: // Read Tmlt device, start conversion on Thlt device
+			    tmlt_ow_87 = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err);
+				ds18b20_start_conversion(DS2482_THLT_BASE); // start conversion
+				ow_std = 2;
+				break;
+		case 2: // Read Thlt device, start conversion on Tmlt device
+				thlt_ow_87 = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err);
+				ds18b20_start_conversion(DS2482_TMLT_BASE); // start conversion
+				ow_std = 1;
+				break;
+	} // switch
+} // ow_task()
 
 /*------------------------------------------------------------------
   Purpose  : This function initializes all the Arduino ports that 
@@ -625,25 +699,25 @@ int main(void)
 	char    s[30];     // Needed for xputs() and sprintf()
 	int	    udp_packet_size;
 	
-	init_interrupt(); // Initialize Interrupts and all hardware devices
-	i2c_init();       // Init. I2C bus
-	adc_init();       // Init. internal 10-bits AD-Converter
-	pwm_init();       // Init. PWM function
-	pwm_write(0);	  // Start with 0 % duty-cycle
+	init_interrupt();        // Initialize Interrupts and all hardware devices
+	i2c_init(SCL_CLK_50KHZ); // Init. I2C bus, I2C CLK = 50 kHz
+	adc_init();              // Init. internal 10-bits AD-Converter
+	pwm_init();              // Init. PWM function
+	pwm_write(0);	         // Start with 0 % duty-cycle
 
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
-	init_moving_average(&lm35_ma,10, INIT_TEMP * 100); // Init. MA10-filter with 20 °C
-	init_moving_average(&vhlt_ma, 5, INIT_VOL  *  10); // Init. MA5-filter with 8 L
-	init_moving_average(&vmlt_ma, 5, INIT_VOL  *  10); // Init. VMLT MA5-filter with 8 L
-	init_moving_average(&thlt_ma,10, INIT_TEMP << 4);  // Init. MA10-filter with 20 °C
-	init_moving_average(&tmlt_ma,10, INIT_TEMP << 4);  // Init. MA10-filter with 20 °C
+	init_moving_average(&lm35_ma,10, (float)INIT_TEMP * 100.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&vhlt_ma, 5, (float)INIT_VOL10);        // Init. MA5-filter with 8 L
+	init_moving_average(&vmlt_ma, 5, (float)INIT_VOL10);        // Init. VMLT MA5-filter with 8 L
+	init_moving_average(&thlt_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&tmlt_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
 	lm35_temp    = INIT_TEMP * 100;
-	vhlt_10      = INIT_VOL  *  10;
-	vmlt_10      = INIT_VOL  *  10;
-	thlt_temp_16 = INIT_TEMP << 4;
-	tmlt_temp_16 = INIT_TEMP << 4;
+	vhlt_10      = INIT_VOL10;
+	vmlt_10      = INIT_VOL10;
+	thlt_temp_87 = INIT_TEMP << 7;
+	tmlt_temp_87 = INIT_TEMP << 7;
 	
 	//------------------------------------------------------
 	// PD3..PD4: LEDs ; PD5..PD7: Digital switching outputs
@@ -659,11 +733,12 @@ int main(void)
 	
 	// Initialize all the tasks for the E-Brew system
 	add_task(pwm_2_time      ,"pwm_2_time", 10,   50); // Electrical Heating PWM every 50 msec.
-	add_task(lm35_task       ,"lm35_task" , 30, 1000); // Process Temperature from LM35 sensor
+	add_task(lm35_task       ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
 	add_task(vhlt_task       ,"vhlt_task" , 50, 1000); // Process Volume from VHLT sensor
 	add_task(vmlt_task       ,"vmlt_task" , 70, 1000); // Process Volume from VMLT sensor
-	add_task(thlt_task       ,"thlt_task" , 90, 1000); // Process Temperature from THLT sensor
-	add_task(tmlt_task       ,"tmlt_task" ,110, 1000); // Process Temperature from TMLT sensor
+	add_task(thlt_task       ,"thlt_task" , 90, 2000); // Process Temperature from THLT sensor
+	add_task(tmlt_task       ,"tmlt_task" ,130, 2000); // Process Temperature from TMLT sensor
+	add_task(ow_task         ,"OW_task"   ,150, 1000); // Process Temperatures from One-Wire sensors
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number    
@@ -671,10 +746,10 @@ int main(void)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if
-		
+	
     while(1)
     {
-		dispatch_tasks(); // run the task-scheduler
+	    dispatch_tasks(); // run the task-scheduler
 		switch (rs232_command_handler()) // run command handler continuously
 		{
 			case ERR_CMD: xputs("Command Error\n"); break;
@@ -684,7 +759,6 @@ int main(void)
 			case ERR_I2C: break; // do not print anything 
 			default     : break;
 		} // switch
-		
 		if (ethernet_WIZ550i) // only true after an E1 command
 		{
 			udp_packet_size = udp_parsePacket();
