@@ -4,6 +4,12 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.16  2015/06/28 12:27:35  Emile
+// - Moving_average filters now work with Q8.7 instead of Q8.4 format
+// - One-wire functions now work with DS18B20
+// - Separate ow_task() added for one-wire communication
+// - I2C clock made adjustable
+//
 // Revision 1.15  2015/05/31 10:28:57  Emile
 // - Bugfix: Flowsensor reading counted rising and falling edges.
 // - Bugfix: Only valve V8 is written to at init (instead of all valves).
@@ -72,10 +78,6 @@
 #include "misc.h"
 #include "Udp.h"
 #include "one_wire.h"
-
-uint16_t t_1; // Measured #clock-ticks of 50 usec. (TMR1 frequency)
-uint16_t t_2;
-uint16_t t_m = 0;
 
 extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed
 extern unsigned int localPort;   // local port to listen on 	
@@ -495,7 +497,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 if (rs232_udp == ETHERNET_UDP)
 				 {
 					 udp_endPacket(); // send response
-				 } // if				 
+				 } // if	
 			     break;
 
 	   case 'e': // Enable/Disable Ethernet with WIZ550io
@@ -593,10 +595,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					 case 3: // List all tasks
 							 list_all_tasks(rs232_udp); 
 							 break;	
-					 case 4: // DEBUG: Time Measurements
-							 rval = NO_ERR;
-							 break;
-					 case 5: // DEBUG: One-Wire Find Devices
+					 case 4: // DEBUG: One-Wire Find Devices
 							 rval = OW_first(DS2482_THLT_BASE); // Find ROM ID of HLT DS18B20
 							 if (rval) 
 							 {

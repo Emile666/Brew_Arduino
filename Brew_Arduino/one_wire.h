@@ -6,6 +6,12 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.3  2015/06/28 12:27:35  Emile
+// - Moving_average filters now work with Q8.7 instead of Q8.4 format
+// - One-wire functions now work with DS18B20
+// - Separate ow_task() added for one-wire communication
+// - I2C clock made adjustable
+//
 // Revision 1.2  2015/06/05 13:51:04  Emile
 // - Headers added to one_wire sources
 //
@@ -41,7 +47,7 @@ void    OW_target_setup(uint8_t family_code);
 void    OW_family_skip_setup(void);
 uint8_t OW_search(uint8_t addr);
 uint8_t ds18b20_start_conversion(uint8_t i2c_addr);
-int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err);
+int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err, uint8_t s2);
 
 // Helper functions
 uint8_t calc_crc8(uint8_t data);

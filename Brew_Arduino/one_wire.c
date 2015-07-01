@@ -31,6 +31,12 @@
 //
 // ------------------------------------------------------------------
 // $Log$
+// Revision 1.3  2015/06/28 12:27:35  Emile
+// - Moving_average filters now work with Q8.7 instead of Q8.4 format
+// - One-wire functions now work with DS18B20
+// - Separate ow_task() added for one-wire communication
+// - I2C clock made adjustable
+//
 // Revision 1.2  2015/06/05 13:51:04  Emile
 // - Headers added to one_wire sources
 //
@@ -622,7 +628,7 @@ uint8_t ds18b20_start_conversion(uint8_t i2c_addr)
 // Returns  : The temperature from the DS18B20 in a signed Q8.7 format.
 //            Q8.7 is chosen here for accuracy reasons when filtering.
 //--------------------------------------------------------------------------
-int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err)
+int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err, uint8_t s2)
 {
     int16_t  temp = 0;   // the Temp. from the DS18B20 as an int
     uint8_t  scratch[9]; // Scratchpad of DS18B20
@@ -633,15 +639,24 @@ int16_t ds18b20_read(uint8_t i2c_addr, uint8_t *err)
 	{
 		OW_write_byte(OW_SKIP_ROM_CMD        , i2c_addr); // only 1 sensor, use SKIP ROM command
 		OW_write_byte(OW_READ_SCRATCHPAD_FCMD, i2c_addr); // Read scratchpad
-		crc8 = 0x00;
-		for (i = 0; i < 9; i++)
+		if (s2)
+		{	// only read 2 temperature bytes
+			scratch[0] = OW_read_byte(i2c_addr);
+			scratch[1] = OW_read_byte(i2c_addr);
+			*err = !OW_reset(i2c_addr); // false: error
+		}
+		else
 		{
-			scratch[i] = OW_read_byte(i2c_addr);
-			if (i < 8) calc_crc8(scratch[i]);
-			//sprintf(s2,"%02X ",scratch[i]); xputs(s2);
-		} // for
-		*err = (crc8 != scratch[8]);
-		//if (*err) xputs("crc error\n");
+			crc8 = 0x00;
+			for (i = 0; i < 9; i++)
+			{
+				scratch[i] = OW_read_byte(i2c_addr);
+				if (i < 8) calc_crc8(scratch[i]);
+				//sprintf(s2,"%02X ",scratch[i]); xputs(s2);
+			} // for
+			*err = (crc8 != scratch[8]);
+			//if (*err) xputs("crc error\n");
+		} // else
 		temp   = ((int16_t)scratch[1] << 8) | scratch[0];
 		temp <<= 3; // From Q8.4 to Q8.7
 	} // if	

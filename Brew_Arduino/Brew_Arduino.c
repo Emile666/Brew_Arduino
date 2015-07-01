@@ -4,6 +4,12 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.19  2015/06/28 12:27:35  Emile
+// - Moving_average filters now work with Q8.7 instead of Q8.4 format
+// - One-wire functions now work with DS18B20
+// - Separate ow_task() added for one-wire communication
+// - I2C clock made adjustable
+//
 // Revision 1.18  2015/06/05 13:51:04  Emile
 // - Headers added to one_wire sources
 //
@@ -559,12 +565,12 @@ void ow_task(void)
 				ow_std = 1;
 				break;
 		case 1: // Read Tmlt device, start conversion on Thlt device
-			    tmlt_ow_87 = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err);
+			    tmlt_ow_87 = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err,1);
 				ds18b20_start_conversion(DS2482_THLT_BASE); // start conversion
 				ow_std = 2;
 				break;
 		case 2: // Read Thlt device, start conversion on Tmlt device
-				thlt_ow_87 = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err);
+				thlt_ow_87 = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err,1);
 				ds18b20_start_conversion(DS2482_TMLT_BASE); // start conversion
 				ow_std = 1;
 				break;
