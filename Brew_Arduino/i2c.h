@@ -6,6 +6,12 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.9  2015/06/28 12:27:35  Emile
+  - Moving_average filters now work with Q8.7 instead of Q8.4 format
+  - One-wire functions now work with DS18B20
+  - Separate ow_task() added for one-wire communication
+  - I2C clock made adjustable
+
   Revision 1.8  2015/06/05 13:46:33  Emile
   - Support for one-wire masters (DS2482) added (not tested yet)
 
@@ -54,23 +60,38 @@
 #endif
 
 //-------------------------------------------------------------------------
+// MCP23008 8-BIT  IO Expander
 // MCP23017 16-BIT IO Expander: Register names when BANK == 1
-//
-#define IOCON    (0x05)
+//-------------------------------------------------------------------------
 // Bank addressing, seq. operation disabled, slew rate enabled
 // HW addressing enabled
-#define IOCON_INIT (0xAA)
+#define MCP23017_INIT (0xAA)
+#define MCP23008_INIT (0x2A)
 
-#define IODIRA   (0x00)
-#define IPOLA    (0x01)
-#define GPINTENA (0x02)
-#define DEFVALA  (0x03)
-#define INTCONA  (0x04)
-#define GPPUA    (0x06)
-#define INTFA    (0x07)
-#define INTCAPA  (0x08)
-#define GPIOA    (0x09)
-#define OLATA    (0x0A)
+// Defines for the MCP23008
+#define IODIR   (0x00)
+#define IPOL    (0x01)
+#define GPINTEN (0x02)
+#define DEFVAL  (0x03)
+#define INTCON  (0x04)
+#define IOCON   (0x05)
+#define GPPU    (0x06)
+#define INTF    (0x07)
+#define INTCAP  (0x08)
+#define GPIO    (0x09)
+#define OLAT    (0x0A)
+
+// Defines for the MCP23017
+#define IODIRA   (IODIR)
+#define IPOLA    (IPOL)
+#define GPINTENA (GPINTEN)
+#define DEFVALA  (DEFVAL)
+#define INTCONA  (INTCON)
+#define GPPUA    (GPPU)
+#define INTFA    (INTF)
+#define INTCAPA  (INTCAP)
+#define GPIOA    (GPIO)
+#define OLATA    (OLAT)
 
 #define IODIRB   (IODIRA   + 0x10)
 #define IPOLB    (IPOLA    + 0x10)
@@ -102,8 +123,8 @@
 
 /** Define all I2C Hardware addresses **/
 /** NOTE: 0x44 on older PCBs, 0x40 as of HW PCB V3.01 **/
-#define MCP23017_BASE   (0x40) /* CH0: 16-bit IO for Valve Outputs (Optional) */
-#define MCP23017_I2C_CH (PCA9544_CH1)
+#define MCP230XX_BASE   (0x40) /* CH0: IO-Expander for Valve Outputs */
+#define MCP230XX_I2C_CH (PCA9544_CH1)
 
 #define DS2482_THLT_BASE (0x30)
 #define DS2482_TMLT_BASE (0x36)
@@ -140,8 +161,8 @@
 
 // DS2482 Configuration Register
 // Standard speed (1WS==0), Strong Pullup disabled (SPU==0), Active Pullup enabled (APU==1)
-#define DS2482_CONFIG (0xE1)
-#define DS2482_OW_POLL_LIMIT (200)
+#define DS2482_CONFIG        (0xE1)
+#define DS2482_OW_POLL_LIMIT  (200)
 
 // DS2482 commands
 #define CMD_DRST   0xF0
@@ -180,9 +201,10 @@ enum i2c_acks i2c_select_channel(uint8_t ch); // Set PCA9544 channel
 
 int16_t       lm92_read(uint8_t dvc, uint8_t *err);
 
+uint8_t       mcp23008_init(void);
 uint8_t       mcp23017_init(void);
-uint8_t		  mcp23017_read(uint8_t reg);
-uint8_t       mcp23017_write(uint8_t reg, uint8_t data);
+uint8_t		  mcp230xx_read(uint8_t reg);
+uint8_t       mcp230xx_write(uint8_t reg, uint8_t data);
 
 int8_t        ds2482_reset(uint8_t addr);
 int8_t        ds2482_write_config(uint8_t addr);

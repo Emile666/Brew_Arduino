@@ -4,6 +4,12 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.17  2015/07/01 21:03:46  Emile
+// - Bug-fix in scheduler time-measurement. Now reads proper time in msec
+// - Usart comm. now IRQ driven, so that all receiving commands are handled
+// - DS18B20 reads only 2 bytes (instead of 9). Total time taken is now 28 msec.
+//   This was 60 msec. and caused multiple reads at PC side.
+//
 // Revision 1.16  2015/06/28 12:27:35  Emile
 // - Moving_average filters now work with Q8.7 instead of Q8.4 format
 // - One-wire functions now work with DS18B20
@@ -629,7 +635,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 
 	   case 'v': // Output Valve On-Off signals to MCP23017 16-bit IO
 			   rval = 78;
-			   mcp23017_write(OLATA,num); // write valve bits to IO-expander PORTA
+			   mcp230xx_write(OLAT,num); // write valve bits to IO-expander PORT
 			   break;
 
 	   case 'w': // PWM signal for Modulating Gas-Burner

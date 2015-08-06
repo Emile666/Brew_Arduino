@@ -6,6 +6,12 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.11  2015/06/28 12:27:35  Emile
+  - Moving_average filters now work with Q8.7 instead of Q8.4 format
+  - One-wire functions now work with DS18B20
+  - Separate ow_task() added for one-wire communication
+  - I2C clock made adjustable
+
   Revision 1.10  2015/06/05 13:46:33  Emile
   - Support for one-wire masters (DS2482) added (not tested yet)
 
@@ -285,6 +291,25 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
    return temp;     // Return value now in °C << 7
 } // lm92_read()
 
+uint8_t mcp23008_init(void)
+/*------------------------------------------------------------------
+  Purpose  : This function inits the MCP23008 8-bit IO-expander
+  Variables: -
+  Returns  : 0: no error, 1: error
+  ------------------------------------------------------------------*/
+{
+	uint8_t err;
+	err = mcp230xx_write(IOCON, MCP23008_INIT);
+	if (!err)
+	{
+		err = mcp230xx_write(IODIR, 0x00); // all PORT bits are output
+		err = mcp230xx_write(GPPU,  0xFF); // Enable pull-ups (100k) on PORT
+		err = mcp230xx_write(OLAT,  0x80); // HW-bug? Have to write this first
+		err = mcp230xx_write(OLAT,  0x00); // All valves are OFF at power-up
+	} // if
+	return err;	
+} // mcp23008_init()
+
 uint8_t mcp23017_init(void)
 /*------------------------------------------------------------------
   Purpose  : This function inits the MCP23017 16-bit IO-expander
@@ -293,22 +318,22 @@ uint8_t mcp23017_init(void)
   ------------------------------------------------------------------*/
 {
 	uint8_t err;
-	err = mcp23017_write(IOCON, IOCON_INIT);
+	err = mcp230xx_write(IOCON, MCP23017_INIT);
 	if (!err)
 	{
-		err = mcp23017_write(IODIRB, 0xFF); // all PORTB bits are input
-		err = mcp23017_write(IODIRA, 0x00); // all PORTA bits are output
-		err = mcp23017_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
-		err = mcp23017_write(OLATA,  0x80); // HW-bug? Have to write this first
-		err = mcp23017_write(OLATA,  0x00); // All valves are OFF at power-up
+		err = mcp230xx_write(IODIRB, 0xFF); // all PORTB bits are input
+		err = mcp230xx_write(IODIRA, 0x00); // all PORTA bits are output
+		err = mcp230xx_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
+		err = mcp230xx_write(OLATA,  0x80); // HW-bug? Have to write this first
+		err = mcp230xx_write(OLATA,  0x00); // All valves are OFF at power-up
 	} // if
 	return err;	
 } // mcp23017_init()
 
-uint8_t mcp23017_read(uint8_t reg)
+uint8_t mcp230xx_read(uint8_t reg)
 /*------------------------------------------------------------------
-  Purpose  : This function reads one register from the MCP23017
-             16-bit IO-expander
+  Purpose  : This function reads one register from the MCP23008 or
+             the MCP23017 IO-expander.
   Variables:
        reg : The register to read from
   Returns  : the value returned from the register
@@ -316,25 +341,25 @@ uint8_t mcp23017_read(uint8_t reg)
 {
 	uint8_t err, ret = 0;
 	
-	err = (i2c_select_channel(MCP23017_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(MCP230XX_I2C_CH) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
-		err = (i2c_start(MCP23017_BASE | I2C_WRITE) == I2C_NACK); 
+		err = (i2c_start(MCP230XX_BASE | I2C_WRITE) == I2C_NACK); 
 	} // if
 	if (!err)
 	{
 		err = (i2c_write(reg)  == I2C_NACK); // write register address
-		i2c_rep_start(MCP23017_BASE | I2C_READ);
+		i2c_rep_start(MCP230XX_BASE | I2C_READ);
 		ret = i2c_readNak(); // Read byte, generate I2C stop condition
 		i2c_stop();
 	} // if
 	return ret;
-} // mcp23017_read()
+} // mcp230xx_read()
 
-uint8_t mcp23017_write(uint8_t reg, uint8_t data)
+uint8_t mcp230xx_write(uint8_t reg, uint8_t data)
 /*------------------------------------------------------------------
   Purpose  : This function write one data byte to a specific register 
-			 of the MCP23017 16-bit IO-expander
+			 of the MCP23008 or MCP23017 IO-expander.
   Variables:
        reg : The register to write to
 	   data: The data byte to write into the register
@@ -343,10 +368,10 @@ uint8_t mcp23017_write(uint8_t reg, uint8_t data)
 {
 	uint8_t err;
 		
-	err = (i2c_select_channel(MCP23017_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(MCP230XX_I2C_CH) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
-		err = (i2c_start(MCP23017_BASE | I2C_WRITE) == I2C_NACK);
+		err = (i2c_start(MCP230XX_BASE | I2C_WRITE) == I2C_NACK);
 	} // if
 	if (!err)
 	{
@@ -355,7 +380,7 @@ uint8_t mcp23017_write(uint8_t reg, uint8_t data)
 		i2c_stop();
 	} // if
 	return err;
-} // mcp23017_write()
+} // mcp230xx_write()
 
 //--------------------------------------------------------------------------
 // Perform a device reset on the DS2482

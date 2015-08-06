@@ -4,6 +4,12 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.20  2015/07/01 21:03:46  Emile
+// - Bug-fix in scheduler time-measurement. Now reads proper time in msec
+// - Usart comm. now IRQ driven, so that all receiving commands are handled
+// - DS18B20 reads only 2 bytes (instead of 9). Total time taken is now 28 msec.
+//   This was 60 msec. and caused multiple reads at PC side.
+//
 // Revision 1.19  2015/06/28 12:27:35  Emile
 // - Moving_average filters now work with Q8.7 instead of Q8.4 format
 // - One-wire functions now work with DS18B20
@@ -748,9 +754,9 @@ int main(void)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number    
-	if (mcp23017_init())        // Initialize IO-expander for valves (port A output, port B input)
+	if (mcp23008_init())        // Initialize IO-expander for valves (port A output, port B input)
 	{
-		xputs("mcp23017_init() error\n");
+		xputs("mcp23008_init() error\n");
 	} // if
 	
     while(1)
