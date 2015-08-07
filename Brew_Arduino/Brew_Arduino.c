@@ -4,6 +4,9 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.21  2015/08/06 14:41:16  Emile
+// - Adapted for MCP23008 instead of MCP23017.
+//
 // Revision 1.20  2015/07/01 21:03:46  Emile
 // - Bug-fix in scheduler time-measurement. Now reads proper time in msec
 // - Usart comm. now IRQ driven, so that all receiving commands are handled
@@ -546,42 +549,65 @@ void tmlt_task(void)
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperatures from
-			 the One-Wire devices. There are two sensors, each has its
-			 own DS2482 I2C-to-One-Wire bridge. Since both sensors have 4
+			 the HLT One-Wire sensor. The sensor has its
+			 own DS2482 I2C-to-One-Wire bridge. Since this sensor has 4
 			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
 			 would be sufficient. However all variables are stored in a
 			 Q8.7 format for accuracy reasons when filtering. All variables
 			 with this format have the extension _87.
-			 This task is called every second.
-  Variables: tmlt_old_87   : previous value of tmlt_temp_87
-			 tmlt_offset_87: the correction in temperature in °C
-			 tmlt_slope_87 : the slope-limit in °C/sec.
-			 tmlt_ma       : the moving-average filter struct for TMLT
-			 tmlt_temp_87  : the processed MLT temperature in °C
+			 This task is called every second so that every 2 seconds a new
+			 temperature is present.
+  Variables: thlt_ow_87 : HLT temperature read from sensor in Q8.7 format
+			 thlt_ow_err: 1=error
   Returns  : -
   --------------------------------------------------------------------*/
-void ow_task(void)
+void owh_task(void)
 {
-	static int ow_std = 0; // internal state
+	static int owh_std = 0; // internal state
 	
-	switch (ow_std)
+	switch (owh_std)
 	{   
-		case 0: // Init.
-				ds18b20_start_conversion(DS2482_TMLT_BASE); // start conversion
-				ow_std = 1;
+		case 0: // Start Conversion
+				ds18b20_start_conversion(DS2482_THLT_BASE);
+				owh_std = 1;
 				break;
-		case 1: // Read Tmlt device, start conversion on Thlt device
-			    tmlt_ow_87 = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err,1);
-				ds18b20_start_conversion(DS2482_THLT_BASE); // start conversion
-				ow_std = 2;
-				break;
-		case 2: // Read Thlt device, start conversion on Tmlt device
-				thlt_ow_87 = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err,1);
-				ds18b20_start_conversion(DS2482_TMLT_BASE); // start conversion
-				ow_std = 1;
+		case 1: // Read Thlt device
+			    thlt_ow_87 = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err,1);
+				owh_std = 0;
 				break;
 	} // switch
-} // ow_task()
+} // owh_task()
+
+/*--------------------------------------------------------------------
+  Purpose  : This is the task that processes the temperatures from
+			 the MLT One-Wire sensor. The sensor has its
+			 own DS2482 I2C-to-One-Wire bridge. Since this sensor has 4
+			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
+			 would be sufficient. However all variables are stored in a
+			 Q8.7 format for accuracy reasons when filtering. All variables
+			 with this format have the extension _87.
+			 This task is called every second so that every 2 seconds a new
+			 temperature is present.
+  Variables: tmlt_ow_87 : MLT temperature read from sensor in Q8.7 format
+			 tmlt_ow_err: 1=error
+  Returns  : -
+  --------------------------------------------------------------------*/
+void owm_task(void)
+{
+	static int owm_std = 0; // internal state
+	
+	switch (owm_std)
+	{   
+		case 0: // Start conversion
+				ds18b20_start_conversion(DS2482_TMLT_BASE);
+				owm_std = 1;
+				break;
+		case 1: // Read Tmlt device
+			    tmlt_ow_87 = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err,1);
+				owm_std = 0;
+				break;
+	} // switch
+} // owm_task()
 
 /*------------------------------------------------------------------
   Purpose  : This function initializes all the Arduino ports that 
@@ -748,9 +774,10 @@ int main(void)
 	add_task(lm35_task       ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
 	add_task(vhlt_task       ,"vhlt_task" , 50, 1000); // Process Volume from VHLT sensor
 	add_task(vmlt_task       ,"vmlt_task" , 70, 1000); // Process Volume from VMLT sensor
-	add_task(thlt_task       ,"thlt_task" , 90, 2000); // Process Temperature from THLT sensor
-	add_task(tmlt_task       ,"tmlt_task" ,130, 2000); // Process Temperature from TMLT sensor
-	add_task(ow_task         ,"OW_task"   ,150, 1000); // Process Temperatures from One-Wire sensors
+	add_task(owh_task        ,"owh_task"  ,320, 1000); // Process Temperature from DS18B20 HLT sensor
+	add_task(owm_task        ,"owm_task"  ,420, 1000); // Process Temperature from DS18B20 MLT sensor
+	add_task(thlt_task       ,"thlt_task" ,520, 2000); // Process Temperature from THLT sensor
+	add_task(tmlt_task       ,"tmlt_task" ,620, 2000); // Process Temperature from TMLT sensor
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number    

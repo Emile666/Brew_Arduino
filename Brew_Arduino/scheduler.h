@@ -7,6 +7,11 @@
   Purpose : This is the header-file for scheduler.c
   ------------------------------------------------------------------
   $Log$
+  Revision 1.5  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   Revision 1.4  2013/07/24 13:46:40  Emile
   - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
   - Version ready for Integration Testing with PC program!
@@ -42,7 +47,7 @@
 #include "pwm.h"
 #include "brew_arduino.h"
 
-#define MAX_TASKS	  (8)
+#define MAX_TASKS	  (9)
 #define MAX_MSEC      (60000)
 #define TICKS_PER_SEC (1000L)
 #define NAME_LEN      (12) 
