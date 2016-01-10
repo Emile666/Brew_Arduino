@@ -6,6 +6,9 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.10  2015/08/06 14:41:16  Emile
+  - Adapted for MCP23008 instead of MCP23017.
+
   Revision 1.9  2015/06/28 12:27:35  Emile
   - Moving_average filters now work with Q8.7 instead of Q8.4 format
   - One-wire functions now work with DS18B20
@@ -126,9 +129,11 @@
 #define MCP230XX_BASE   (0x40) /* CH0: IO-Expander for Valve Outputs */
 #define MCP230XX_I2C_CH (PCA9544_CH1)
 
-#define DS2482_THLT_BASE (0x30)
-#define DS2482_TMLT_BASE (0x36)
-#define DS2482_I2C_CH    (PCA9544_CH0)
+#define DS2482_THLT_BASE  (0x30)
+#define DS2482_TBOIL_BASE (0x32)
+#define DS2482_TCFC_BASE  (0x34)
+#define DS2482_TMLT_BASE  (0x36)
+#define DS2482_I2C_CH     (PCA9544_CH0)
 
 #define LM92_0_BASE   (0x90) /* Not used */
 #define LM92_1_BASE   (0x92) /* CH2: LM92 */

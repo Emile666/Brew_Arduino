@@ -6,6 +6,11 @@
   Purpose : SPI-bus low-level routines
   ------------------------------------------------------------------
   $Log$
+  Revision 1.2  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   ================================================================== */ 
 #include "spi.h"
 
@@ -13,8 +18,8 @@
 // MCP23S08: CPOL, CPHA = (0,0) /* (0,1) does NOT work! */
 void spi_init(void)
 {
-	PORTB |= (1<<DD_SS);               // Disable Slave-Select
-	DDRB  |= (1<<DD_SS);	 	       // Set Slave-Select as output-pin
+	PORTD |= (1<<DD_SS);               // Disable Slave-Select
+	DDRD  |= (1<<DD_SS);	 	       // Set Slave-Select as output-pin
 	
 	SPCR = ((1 << SPE)  |               // SPI Enable
   	        (0 << SPIE) |               // SPI Interrupt Enable
@@ -42,12 +47,12 @@ uint8_t spi_transfer(uint8_t _data)
 
 void spi_set_ss(void)    
 { 
-	PORTB &= ~(1<<DD_SS); 
+	PORTD &= ~(1<<DD_SS); 
 } // spi_set_ss()
 
 void spi_reset_ss(void)    
 { 
-	PORTB |= (1<<DD_SS); 
+	PORTD |= (1<<DD_SS); 
 } // spi_reset_ss()
  
 

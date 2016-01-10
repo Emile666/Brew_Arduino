@@ -6,12 +6,17 @@
   Purpose : ADC routines
   ------------------------------------------------------------------
   $Log$
+  Revision 1.2  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   ================================================================== */ 
 #include "adc.h"
 
 void adc_init(void)
 {
-	DIDR0   = (1<<ADC0D) | (1<<ADC1D) | (1<<ADC2D); // disable digital inputs
+	// No need to use DIDR0, since ADC6 has no digital IO.
 	ADMUX  |= (1<<REFS1) | (1<<REFS0); // Select Internal Vref (1.1 Volt)
 	//ADMUX  |=  (1<<REFS0); // Select AVcc (5 Volt)
 	ADCSRA |= ((1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0) | (1<<ADEN)); // set ADC-CLK = 125 kHz

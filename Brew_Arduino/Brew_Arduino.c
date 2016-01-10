@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.22  2015/08/07 13:32:04  Emile
+// - OW_task() split into owh_task() and owm_task(). Blocking time now reduced
+//   from 34 msec. to 24 msec.
+//
 // Revision 1.21  2015/08/06 14:41:16  Emile
 // - Adapted for MCP23008 instead of MCP23017.
 //
@@ -41,7 +45,7 @@
 // - mcp23017 (16 bit I2C IO-expander) routines + defines added
 //
 // Revision 1.12  2014/11/09 15:38:34  Emile
-// - PUMP_LED removed from PD2, PUMP has same function
+// - PUMP_LED removed from PD2, PUMP_230V has same function
 // - Interface for 2nd waterflow sensor added to PD2
 // - Command A6 (read waterflow in E-2 L) added
 // - FLOW_PER_L changed to 330 (only rising edge is counted)
@@ -121,14 +125,16 @@ uint8_t  gas_non_mod_llimit = 30; // Hysteresis lower-limit parameter
 uint8_t  gas_non_mod_hlimit = 35; // Hysteresis upper-limit parameter
 //---------------------------------------------------------------------------------
 // system_mode == GAS_MODULATING:    a hysteresis block is used to determine when
-//                                   the HEATER LED and HEATER TRIAC is switched on.
+//                                   the HLT_230V LED and HLT_230V TRIAC is switched on.
 //                                   The TRIAC is needed to energize the gas-valve.
 //---------------------------------------------------------------------------------
 uint8_t  gas_mod_pwm_llimit = 2;  // Modulating gas-valve Hysteresis lower-limit parameter
 uint8_t  gas_mod_pwm_hlimit = 4;  // Modulating gas-valve Hysteresis upper-limit parameter
 
-uint8_t  tmr_on_val    = 0;         // ON-timer value  for PWM to Time-Division signal
-uint8_t  tmr_off_val   = 0;         // OFF-timer value for PWM to Time-Division signal
+uint8_t    btmr_on_val  = 0;          // ON-timer  for PWM to Time-Division Boil-kettle
+uint8_t    btmr_off_val = 0;         // OFF-timer for PWM to Time-Division Boil-kettle
+uint8_t    htmr_on_val  = 0;          // ON-timer  for PWM to Time-Division HLT
+uint8_t    htmr_off_val = 0;         // OFF-timer for PWM to Time-Division HLT
 
 //-----------------------------------
 // LM35 parameters and variables
@@ -138,26 +144,6 @@ uint16_t lm35_temp;                 // LM35 Temperature in E-2 °C
 uint16_t triac_llimit  = 6500;      // Hysteresis lower-limit for triac_too_hot in E-2 °C
 uint16_t triac_hlimit  = 7500;	    // Hysteresis upper-limit for triac_too_hot in E-2 °C
 uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
-
-//-----------------------------------
-// VHLT parameters and variables
-//-----------------------------------
-ma       vhlt_ma;                   // struct for VHLT moving_average filter
-uint16_t vhlt_old_10;               // Previous value of vhlt_10
-uint16_t vhlt_10;                   // VHLT Volume in E-1 L
-int16_t  vhlt_offset_10 = 80;       // VHLT offset-correction in E-1 L
-uint16_t vhlt_max_10    = 1400;     // VHLT MAX Volume in E-1 L
-int16_t  vhlt_slope_10  = 10;       // VHLT slope-limiter is 1 L/sec.
-
-//-----------------------------------
-// VMLT parameters and variables
-//-----------------------------------
-ma       vmlt_ma;                   // struct for VMLT moving_average filter
-uint16_t vmlt_old_10;               // Previous value of vmlt_10
-uint16_t vmlt_10;                   // VMLT Volume in E-1 L
-int16_t  vmlt_offset_10 = 80;       // VMLT offset-correction in E-1 L
-uint16_t vmlt_max_10    = 1100;     // VMLT MAX Volume in E-1 L
-int16_t  vmlt_slope_10  = 10;       // VMLT slope-limiter is 1 L/sec.
 
 //-----------------------------------
 // THLT parameters and variables
@@ -183,11 +169,24 @@ int16_t  tmlt_slope_87  = 512;      // TMLT slope-limiter is 4 °C/ 2 sec. * 128
 uint8_t  tmlt_err       = 0;        // 1 = Read error from LM92
 uint8_t  tmlt_ow_err    = 0;	    // 1 = Read error from DS18B20
 
+ma       tcfc_ma;                   // struct for TCFC moving_average filter
+int16_t  tcfc_temp_87;              // TCFC Temperature in °C * 128
+int16_t  tcfc_offset_87 = 0;        // TCFC offset-correction in °C * 128
+int16_t  tcfc_slope_87  = 512;      // TCFC slope-limiter in °C/2 sec. * 128
+uint8_t  tcfc_err       = 0;        // 1 = Read error from DS18B20  
+
+ma       tboil_ma;                  // struct for TBOIL moving_average filter
+int16_t  tboil_temp_87;             // TBOIL Temperature in °C * 128
+int16_t  tboil_offset_87 = 0;       // TBOIL offset-correction in °C * 128
+int16_t  tboil_slope_87  = 512;     // TBOIL slope-limiter in °C/2 sec. * 128
+uint8_t  tboil_err       = 0;       // 1 = Read error from DS18B20
+
 unsigned long    t2_millis     = 0UL;
 unsigned long    flow_hlt_mlt  = 0UL;
 unsigned long    flow_mlt_boil = 0UL;
-volatile uint8_t old_pc3       = 0x08; // default is high because of the pull-up
-volatile uint8_t old_pd2       = 0x04; // default is high because of the pull-up
+unsigned long    flow_cfc_out  = 0UL; // Count from flow-sensor at output of CFC
+unsigned long    flow4         = 0UL; // Count from FLOW4 (future use)
+volatile uint8_t old_flows     = 0x0F; // default is high because of the pull-up
 
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
@@ -203,45 +202,36 @@ ISR(TIMER2_COMPA_vect)
 
 /*------------------------------------------------------------------
   Purpose  : This is the State-change interrupt routine for PORTC. 
-             It is used to count pulses from FLOW1 (PC3), which is 
-			 the water flow sensor between the HLT and the MLT.
+             It is used to count pulses from FLOW1 (PC3), FLOW2 (PC2) 
+			 FLOW3 (PC1) and FLOW4 (PC0).
   Variables: -
   Returns  : -
   ------------------------------------------------------------------*/
 ISR (PCINT1_vect)
 {
-	uint8_t pc3, dpc3;
+	uint8_t temp,flows;
 	
-	pc3     = PINC & (1 << PINC3); // is either 0x00 or 0x08
-	dpc3    = pc3 ^ old_pc3;       // reads 0x08 on rising & falling edge
-	old_pc3 = pc3;                 // save current value of PC3
+	temp      = PINC & 0x0F;       // Read only Flow-sensor port-pins
+	flows     = temp & !old_flows; // Detect rising-edge for all flows
+	old_flows = temp;              // Save flow-sensor port-pins
 	
-	if (dpc3 && pc3)
-	{   // PC3 is 1 => rising edge detected
-		flow_hlt_mlt++; /* PC3/PCINT11 rising edge */
+	if (flows & 0x08)
+	{   // Rising edge on FLOW1
+		flow_hlt_mlt++;  /* PC3/PCINT11 rising edge */
+	} // if
+	if (flows & 0x04)
+	{   // Rising edge on FLOW2
+		flow_mlt_boil++; /* PC2/PCINT10 rising edge */
+	} // if
+	if (flows & 0x02)
+	{   // Rising edge on FLOW3
+		flow_cfc_out++; /* PC1/PCINT9  rising edge */
+	} // if
+	if (flows & 0x01)
+	{   // Rising edge on FLOW4
+		flow4++;       /* PC0/PCINT8  rising edge */
 	} // if
 } // ISR(PCINT1_vect)
-
-/*------------------------------------------------------------------
-  Purpose  : This is the State-change interrupt routine for PORTD. 
-             It is used to count pulses from FLOW2 (PD2), which is 
-			 the water flow sensor between the MLT and the boil-kettle.
-  Variables: -
-  Returns  : -
-  ------------------------------------------------------------------*/
-ISR (PCINT2_vect)
-{
-	uint8_t pd2, dpd2;
-
-	pd2     = PIND & (1 << PIND2); // is either 0x00 or 0x04
-	dpd2    = pd2 ^ old_pd2;       // reads 0x04 on rising & falling edge
-	old_pd2 = pd2;                 // save current value of PD2
-	
-	if (dpd2 && pd2)
-	{   // PD2 is 1 => rising edge detected
-		flow_mlt_boil++; /* PD2/PCINT18 rising edge */
-	} // if
-} // ISR(PCINT2_vect)
 
 /*------------------------------------------------------------------
   Purpose  : This function returns the number of milliseconds since
@@ -282,95 +272,108 @@ void delay_msec(uint16_t ms)
 			 process_pwm_signal. If Electrical Heating (with a heating element)
 			 is NOT enabled, this routine returns immediately without doing 
 			 anything.
-  Variables: tmr_on_val : the ON-time value
-             tmr_off_val: the OFF-time value
+  Variables: std_td     : the STD state number
 			 htimer     : the ON-timer
 			 ltimer     : the OFF-timer
+             tmr_on_val : the ON-time value
+             tmr_off_val: the OFF-time value
   Returns  : -
   ---------------------------------------------------------------------------*/
-void pwm_2_time(void)
+void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_on_val, uint8_t tmr_off_val, uint8_t mask)
 {
-   static uint8_t  htimer      = 0;    // The ON-timer
-   static uint8_t  ltimer      = 0;    // The OFF-timer
-   static uint8_t  std_td      = IDLE; // STD State number
+	uint8_t portb = mcp230xx_read(GPIOB);
 
-   if (system_mode == ELECTRICAL_HEATING)
-   {   // only run STD when ELECTRICAL HEATING is enabled
-	   switch (std_td)
-	   {
-		   case IDLE:
-				//-------------------------------------------------------------
-				// This is the default state after power-up. Main function
-				// of this state is to initialize the electrical heater states.
-				//-------------------------------------------------------------
-				PORTD &= ~(HEATER | HEATER_LED); // set electrical heater OFF
-				ltimer = tmr_off_val;            // init. low-timer
-				std_td = EL_HTR_OFF;             // goto OFF-state
-				break;
+	switch (*std_td)
+	{
+		case IDLE:
+			//-------------------------------------------------------------
+			// This is the default state after power-up. Main function
+			// of this state is to initialize the electrical heater states.
+			//-------------------------------------------------------------
+			portb  &= ~mask;       // set electrical heater OFF
+			*ltimer = tmr_off_val; // init. low-timer
+			*std_td = EL_HTR_OFF;  // goto OFF-state
+			break;
 
-		   case EL_HTR_OFF:
-			   //---------------------------------------------------------
-			   // Goto ON-state if timeout_ltimer && !triac_too_hot &&
-			   //      !0%_gamma
-			   //---------------------------------------------------------
-			   if (ltimer == 0)
-			   {  // OFF-timer has counted down
-				   if (tmr_on_val == 0)
-				   {   // indication for 0%, remain in this state
-					   ltimer = tmr_off_val; // init. timer again
-					   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-				   } // if
-				   else if (!triac_too_hot)
-				   {
-					   PORTD |= (HEATER | HEATER_LED); // set heater ON
-					   htimer = tmr_on_val; // init. high-timer
-					   std_td = EL_HTR_ON;  // go to ON-state
-				   } // else if
-				   // Remain in this state if timeout && !0% && triac_too_hot
-			   } // if
-			   else
-			   {   // timer has not counted down yet, continue
-				   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-				   ltimer--;         // decrement low-timer
-			   } // else
-			   break;
+		case EL_HTR_OFF:
+			//---------------------------------------------------------
+			// Goto ON-state if timeout_ltimer && !triac_too_hot &&
+			//      !0%_gamma
+			//---------------------------------------------------------
+			if (*ltimer == 0)
+			{  // OFF-timer has counted down
+				if (tmr_on_val == 0)
+				{   // indication for 0%, remain in this state
+					*ltimer = tmr_off_val; // init. timer again
+					portb  &= ~mask;       // set electrical heater OFF
+				} // if
+				else if (!triac_too_hot)
+				{
+					portb  |= mask;       // set electrical heater ON
+					*htimer = tmr_on_val; // init. high-timer
+					*std_td = EL_HTR_ON;  // go to ON-state
+				} // else if
+				// Remain in this state if timeout && !0% && triac_too_hot
+			} // if
+			else
+			{   // timer has not counted down yet, continue
+				portb &= ~mask;  // set electrical heater OFF
+				*ltimer--;       // decrement low-timer
+			} // else
+			break;
 
-		   case EL_HTR_ON:
-			   //---------------------------------------------------------
-			   // Goto OFF-state if triac_too_hot OR 
-			   //      (timeout_htimer && !100%_gamma)
-			   //---------------------------------------------------------
-			   if (triac_too_hot)
-			   {
-				   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-				   ltimer = tmr_off_val; // init. low-timer
-				   std_td = EL_HTR_OFF;  // go to 'OFF' state
-			   } // if
-			   else if (htimer == 0)
-			   {   // timer has counted down
-				   if (tmr_off_val == 0)
-				   {  // indication for 100%, remain in this state
-					   htimer = tmr_on_val; // init. high-timer again
-					   PORTD |= (HEATER | HEATER_LED); // Set heater ON
-				   } // if
-				   else
-				   {   // tmr_off_val > 0
-					   PORTD &= ~(HEATER | HEATER_LED); // set heater OFF
-					   ltimer = tmr_off_val; // init. low-timer
-					   std_td = EL_HTR_OFF;  // go to 'OFF' state
-				   } // else
-			   } // if
-			   else
-			   {  // timer has not counted down yet, continue
-				   PORTD |= (HEATER | HEATER_LED); // Set heater ON
-				   htimer--;        // decrement high-timer
-			   } // else
-			   break;
+		case EL_HTR_ON:
+			//---------------------------------------------------------
+			// Goto OFF-state if triac_too_hot OR 
+			//      (timeout_htimer && !100%_gamma)
+			//---------------------------------------------------------
+			if (triac_too_hot)
+			{
+				portb  &= ~mask;       // set electrical heater OFF
+				*ltimer = tmr_off_val; // init. low-timer
+				*std_td = EL_HTR_OFF;  // go to 'OFF' state
+			} // if
+			else if (*htimer == 0)
+			{   // timer has counted down
+				if (tmr_off_val == 0)
+				{  // indication for 100%, remain in this state
+					*htimer = tmr_on_val; // init. high-timer again
+					portb  |= mask;       // set electrical heater ON
+				} // if
+				else
+				{   // tmr_off_val > 0
+					portb  &= ~mask;       // set electrical heater OFF
+					*ltimer = tmr_off_val; // init. low-timer
+					*std_td = EL_HTR_OFF;  // go to 'OFF' state
+				} // else
+			} // if
+			else
+			{  // timer has not counted down yet, continue
+				portb  |= mask; // set electrical heater ON
+				*htimer--;      // decrement high-timer
+			} // else
+			break;
 
-		   default: break;	
-	   } // switch 
-   } // if
+		default: break;	
+	} // switch 
+	mcp230xx_write(OLATB,portb); // write updated bit-values back to MCP23017 PORTB
 } // pwm_2_time()
+
+void pwm_task(void)
+{
+   static uint8_t stdb  = IDLE; // STD number for Boil
+   static uint8_t stdh  = IDLE; // STD number for HLT
+   static uint8_t htmrb = 0;    // The ON-timer for Boil
+   static uint8_t ltmrb = 0;    // The OFF-timer for Boil
+   static uint8_t htmrh = 0;    // The ON-timer for HLT
+   static uint8_t ltmrh = 0;    // The OFF-timer for HLT
+	
+   if (system_mode == ELECTRICAL_HEATING)
+   {    // only run STD when ELECTRICAL HEATING is enabled
+		pwm_2_time(&stdb, &htmrb, &ltmrb, btmr_on_val, btmr_off_val, BOIL_230V);	
+		pwm_2_time(&stdh, &htmrh, &ltmrh, htmr_on_val, htmr_off_val, HLT_230V);
+   } // if
+} // pwm_task()
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperature from
@@ -401,69 +404,6 @@ void lm35_task(void)
 		triac_too_hot = (lm35_temp > triac_hlimit);
 	} // else
 } // lm35_task()
-
-/*--------------------------------------------------------------------
-  Information about Volume Measurements (vhlt_task() & vmlt_task())
-
-  The volume is measured by a MPX2010 pressure sensor that is 
-  connected to an AD-channel of the ATmega328
-  
-  The MPX2010 delivers 25 mV at 1.45 psi = 10 kPa = 101.978 cm H2O.
-
-  The MPX2010 signal is amplified by an AD620 PGA with A=184 (Rg=270R).
-  The results in a full-scale span of 2.26 Volts @ 50 cm H2O.
-  TO-DO: adjust the gain of the AD620:
-	     60 cm H2O => 1.1 Volt: A = 1.1/(60*0.025/101.978)
-	     A = 74.8 ; Rg = 680 Ohms (A=73.6)
-  --------------------------------------------------------------------*/
-
-/*--------------------------------------------------------------------
-  Purpose  : This is the task that processes the HLT volume. 
-             The HLT volume is measured by the MPX2010 pressure sensor
-			 that is connected to ADC channel 1.
-  Variables: vhlt_ma       : struct for VHLT moving_average filter
-             vhlt_old_10   : Previous value of vhlt_10
-             vhlt_10       : VHLT Volume in E-1 L
-             vhlt_offset_10: VHLT offset-correction in E-1 L
-             vhlt_max_10   : VHLT MAX Volume in E-1 L
-             vhlt_slope_10 : VHLT slope-limiter is 1 L/sec.
-  Returns  : -
-  --------------------------------------------------------------------*/
-void vhlt_task(void)
-{
-    int16_t tmp; // temporary variable
-	
-	tmp         = adc_read(VHLT);
-	tmp         = (uint16_t)((unsigned long)vhlt_max_10 * tmp / 1023);
-	tmp        += vhlt_offset_10;
-	vhlt_old_10 = vhlt_10; // copy previous value of vhlt
-	slope_limiter(vhlt_slope_10, vhlt_old_10, &tmp);
-	vhlt_10     = (uint16_t)moving_average(&vhlt_ma,(float)tmp);
-} // vhlt_task()
-
-/*--------------------------------------------------------------------
-  Purpose  : This is the task that processes the MLT volume. 
-             The MLT volume is measured by the MPX2010 pressure sensor
-			 that is connected to ADC channel 2.
-  Variables: vmlt_ma       : struct for VMLT moving_average filter
-             vmlt_old_10   : Previous value of vmlt_10
-             vmlt_10       : VMLT Volume in E-1 L
-             vmlt_offset_10: VMLT offset-correction in E-1 L
-             vmlt_max_10   : VMLT MAX Volume in E-1 L
-             vmlt_slope_10 : VMLT slope-limiter is 1 L/sec.
-  Returns  : -
-  --------------------------------------------------------------------*/
-void vmlt_task(void)
-{
-    int16_t tmp; // temporary variable
-	
-	tmp         = adc_read(VMLT);
-	tmp         = (uint16_t)((unsigned long)vmlt_max_10 * tmp / 1023);
-	tmp        += vmlt_offset_10;
-	vmlt_old_10 = vmlt_10; // copy previous value of vmlt
-	slope_limiter(vmlt_slope_10, vmlt_old_10, &tmp);
-	vmlt_10     = (uint16_t)moving_average(&vmlt_ma,(float)tmp);
-} // vmlt_task()
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperature from
@@ -609,37 +549,102 @@ void owm_task(void)
 	} // switch
 } // owm_task()
 
+/*--------------------------------------------------------------------
+  Purpose  : This is the task that processes the temperatures from
+			 the Boil-kettle One-Wire sensor. The sensor has its
+			 own DS2482 I2C-to-One-Wire bridge. Since this sensor has 4
+			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
+			 would be sufficient. However all variables are stored in a
+			 Q8.7 format for accuracy reasons when filtering. All variables
+			 with this format have the extension _87.
+			 This task is called every second so that every 2 seconds a new
+			 temperature is present.
+  Variables: tboil_temp_87 : Boil-kettle temperature read from sensor in Q8.7 format
+			 tboil_err: 1=error
+  Returns  : -
+  --------------------------------------------------------------------*/
+void owb_task(void)
+{
+	static int owb_std = 0; // internal state
+	
+	switch (owb_std)
+	{   
+		case 0: // Start conversion
+				ds18b20_start_conversion(DS2482_TBOIL_BASE);
+				owb_std = 1;
+				break;
+		case 1: // Read Tboil device
+			    tboil_temp_87 = ds18b20_read(DS2482_TBOIL_BASE, &tboil_err,1);
+				owb_std = 0;
+				break;
+	} // switch
+} // owb_task()
+
+/*--------------------------------------------------------------------
+  Purpose  : This is the task that processes the temperatures from
+			 the Boil-kettle One-Wire sensor. The sensor has its
+			 own DS2482 I2C-to-One-Wire bridge. Since this sensor has 4
+			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
+			 would be sufficient. However all variables are stored in a
+			 Q8.7 format for accuracy reasons when filtering. All variables
+			 with this format have the extension _87.
+			 This task is called every second so that every 2 seconds a new
+			 temperature is present.
+  Variables: tboil_temp_87 : Boil-kettle temperature read from sensor in Q8.7 format
+			 tboil_err: 1=error
+  Returns  : -
+  --------------------------------------------------------------------*/
+void owc_task(void)
+{
+	static int owc_std = 0; // internal state
+	
+	switch (owc_std)
+	{   
+		case 0: // Start conversion
+				ds18b20_start_conversion(DS2482_TCFC_BASE);
+				owc_std = 1;
+				break;
+		case 1: // Read Tboil device
+			    tcfc_temp_87 = ds18b20_read(DS2482_TCFC_BASE, &tcfc_err,1);
+				owc_std = 0;
+				break;
+	} // switch
+} // owc_task()
+
 /*------------------------------------------------------------------
   Purpose  : This function initializes all the Arduino ports that 
              are used by the E-brew hardware and it initializes the
 			 timer-interrupt to 1 msec. (1 kHz)
+			 ADC6 (LM35), ADC0/PC0/PCINT8 (FLOW4),
+ADC1/PC1/PCINT9 (FLOW3), ADC2/PC2/PCINT10 (FLOW2) and ADC3/PC3/PCINT11 are inputs.
+
   Variables: -
   Returns  : -
   ------------------------------------------------------------------*/
-void init_interrupt(void)
+void init_hardware(void)
 {
-	// Init. port C for reading analog values
-	DDRC  &= 0xF8; // ADC0, ADC1, ADC2 inputs
-	PORTC &= 0xF8; // Disable Pull-up resistors on ADC0..ADC2
+	// Init. port C for reading LM35 Temp. / Flow-sensor counts
+	DDRC   &= 0xB0; // ADC0/PC0, ADC1/PC1, ADC2/PC2, ADC3/PC3 and ADC6 are inputs
+	PORTC  &= 0xBF; // Disable Pull-up resistor on ADC6 (LM35)
+	PORTC  |= 0x0F; // Enable pull-up resistors on PC3, PC2, PC1 and PC0
 	
-	// Init. port C for reading flow sensor counts
-	DDRC   &= ~0x08;        // PC3 is input
-	PORTC  |= 0x08;         // Enable pull-up resistor on PC3
+	// Init. port C for reading 4 flow-sensor counts
 	PCICR  |= (1<<PCIE1);   // set PCIE1 to enable PCMSK1 scan
-	PCMSK1 |= (1<<PCINT11); // Enable PC3 pin change interrupt
-	
-	// Init. port D for reading flow sensor counts
-	DDRD   &= ~0x04;        // PD2 is input
-	PORTD  |= 0x04;         // Enable pull-up resistor on PD2
-	PCICR  |= (1<<PCIE2);   // set PCIE2 to enable PCMSK2 scan
-	PCMSK2 |= (1<<PCINT18); // Enable PD2 pin change interrupt
+	PCMSK1 |= (1<<PCINT11) | (1<<PCINT10) | (1<<PCINT9) | (1<<PCINT8); // Enable pin change interrupts
 
+	//------------------------------------------------------
+	// Init. PD4 for Alive_LED output
+	//------------------------------------------------------
+	DDRD  |=  ALIVE_LED; // Set PD4 as output
+	PORTD &= ~ALIVE_LED; // Init. LED to 0
+
+	// Set Timer 2 to 1000 Hz interrupt frequency: ISR(TIMER2_COMPA_vect)
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
 	TCCR2B =  (0x01 << CS22) | (0x01 << CS20); // set pre-scaler to 128
 	OCR2A  =  124;   // this should set interrupt frequency to 1000 Hz
 	TCNT2  =  0;     // start counting at 0
 	TIMSK2 |= (0x01 << OCIE2A);   // Set interrupt on Compare Match
-} // init_interrupt()
+} // init_hardware()
 
 /*------------------------------------------------------------------
   Purpose  : This function prints a welcome message to the serial
@@ -737,53 +742,46 @@ int main(void)
 	char    s[30];     // Needed for xputs() and sprintf()
 	int	    udp_packet_size;
 	
-	init_interrupt();        // Initialize Interrupts and all hardware devices
+	init_hardware();         // Initialize Interrupts and all hardware devices
 	i2c_init(SCL_CLK_50KHZ); // Init. I2C bus, I2C CLK = 50 kHz
 	adc_init();              // Init. internal 10-bits AD-Converter
 	pwm_init();              // Init. PWM function
-	pwm_write(0);	         // Start with 0 % duty-cycle
+	pwm_write(PWMB,0);	     // Start with 0 % duty-cycle for Boil-kettle
+	pwm_write(PWMH,0);	     // Start with 0 % duty-cycle for HLT
 
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
 	init_moving_average(&lm35_ma,10, (float)INIT_TEMP * 100.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&vhlt_ma, 5, (float)INIT_VOL10);        // Init. MA5-filter with 8 L
-	init_moving_average(&vmlt_ma, 5, (float)INIT_VOL10);        // Init. VMLT MA5-filter with 8 L
 	init_moving_average(&thlt_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
 	init_moving_average(&tmlt_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	lm35_temp    = INIT_TEMP * 100;
-	vhlt_10      = INIT_VOL10;
-	vmlt_10      = INIT_VOL10;
-	thlt_temp_87 = INIT_TEMP << 7;
-	tmlt_temp_87 = INIT_TEMP << 7;
-	
-	//------------------------------------------------------
-	// PD3..PD4: LEDs ; PD5..PD7: Digital switching outputs
-	// - Init. all IO pins as output
-	// - Init. all IO pins to 0  
-	//------------------------------------------------------
-	DDRD  |=  (HEATER_LED | ALIVE_LED | NON_MOD | PUMP | HEATER);
-	PORTD &= ~(HEATER_LED | ALIVE_LED | NON_MOD | PUMP | HEATER);
-		
+	init_moving_average(&tcfc_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&tboil_ma,10,(float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	lm35_temp     = INIT_TEMP * 100;
+	thlt_temp_87  = INIT_TEMP << 7;
+	tmlt_temp_87  = INIT_TEMP << 7;
+	tcfc_temp_87  = INIT_TEMP << 7;
+	tboil_temp_87 = INIT_TEMP << 7;
+
 	// Initialize Serial Communication, See usart.h for BAUD
 	// F_CPU should be a Project Define (-DF_CPU=(xxxL)
 	usart_init(MYUBRR); // Initializes the serial communication
 	
 	// Initialize all the tasks for the E-Brew system
-	add_task(pwm_2_time      ,"pwm_2_time", 10,   50); // Electrical Heating PWM every 50 msec.
-	add_task(lm35_task       ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
-	add_task(vhlt_task       ,"vhlt_task" , 50, 1000); // Process Volume from VHLT sensor
-	add_task(vmlt_task       ,"vmlt_task" , 70, 1000); // Process Volume from VMLT sensor
-	add_task(owh_task        ,"owh_task"  ,320, 1000); // Process Temperature from DS18B20 HLT sensor
-	add_task(owm_task        ,"owm_task"  ,420, 1000); // Process Temperature from DS18B20 MLT sensor
-	add_task(thlt_task       ,"thlt_task" ,520, 2000); // Process Temperature from THLT sensor
-	add_task(tmlt_task       ,"tmlt_task" ,620, 2000); // Process Temperature from TMLT sensor
+	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.
+	add_task(lm35_task ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
+	add_task(owh_task  ,"owh_task"  ,120, 1000); // Process Temperature from DS18B20 HLT sensor
+	add_task(owm_task  ,"owm_task"  ,220, 1000); // Process Temperature from DS18B20 MLT sensor
+	add_task(owb_task  ,"owb_task"  ,320, 1000); // Process Temperature from DS18B20 Boil-kettle sensor
+	add_task(owc_task  ,"owc_task"  ,420, 1000); // Process Temperature from DS18B20 CFC-output sensor
+	add_task(thlt_task ,"thlt_task" ,520, 2000); // Process Temperature from THLT sensor (I2C and/or OW)
+	add_task(tmlt_task ,"tmlt_task" ,620, 2000); // Process Temperature from TMLT sensor (I2C and/or OW)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	print_ebrew_revision(s);    // print revision number    
-	if (mcp23008_init())        // Initialize IO-expander for valves (port A output, port B input)
+	if (mcp23017_init())        // Initialize IO-expander for valves (port A output, port B input)
 	{
-		xputs("mcp23008_init() error\n");
+		xputs("mcp23017_init() error\n");
 	} // if
 	
     while(1)

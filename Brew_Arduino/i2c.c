@@ -6,6 +6,9 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.12  2015/08/06 14:41:16  Emile
+  - Adapted for MCP23008 instead of MCP23017.
+
   Revision 1.11  2015/06/28 12:27:35  Emile
   - Moving_average filters now work with Q8.7 instead of Q8.4 format
   - One-wire functions now work with DS18B20
@@ -321,11 +324,13 @@ uint8_t mcp23017_init(void)
 	err = mcp230xx_write(IOCON, MCP23017_INIT);
 	if (!err)
 	{
-		err = mcp230xx_write(IODIRB, 0xFF); // all PORTB bits are input
+		err = mcp230xx_write(IODIRB, 0x00); // all PORTB bits are output
 		err = mcp230xx_write(IODIRA, 0x00); // all PORTA bits are output
 		err = mcp230xx_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
 		err = mcp230xx_write(OLATA,  0x80); // HW-bug? Have to write this first
 		err = mcp230xx_write(OLATA,  0x00); // All valves are OFF at power-up
+		err = mcp230xx_write(OLATB,  0x80); // HW-bug? Have to write this first
+		err = mcp230xx_write(OLATB,  0x00); // All IO is OFF at power-up
 	} // if
 	return err;	
 } // mcp23017_init()

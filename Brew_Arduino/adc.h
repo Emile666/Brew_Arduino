@@ -6,6 +6,11 @@
   Purpose : Header file for ADC routines
   ------------------------------------------------------------------
   $Log$
+  Revision 1.3  2014/05/03 11:27:44  Emile
+  - Ethernet support added for W550io module
+  - No response for L, N, P, W commands anymore
+  - All source files now have headers
+
   ================================================================== */ 
 #ifndef _ADC_H_
 #define _ADC_H_
@@ -24,10 +29,7 @@
 //-------------------------------------------------------------------------
 // ADC Channel Definitions
 //-------------------------------------------------------------------------
-#define LM35 (ADC_CH0)
-#define VHLT (ADC_CH1)
-#define VMLT (ADC_CH2)
-#define VRES (ADC_CH3)
+#define LM35 (ADC_CH6)
 
 void     adc_init();
 uint16_t adc_read(uint8_t adc_ch);
