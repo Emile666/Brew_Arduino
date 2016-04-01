@@ -4,6 +4,17 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.23  2016/01/10 16:00:23  Emile
+// First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
+// - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
+// - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
+// - Wxxx command is now Hxxx command, new Bxxx command added.
+// - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
+// - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
+// - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
+// - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
+// - set_parameter(): parameters 7-12 removed.
+//
 // Revision 1.22  2015/08/07 13:32:04  Emile
 // - OW_task() split into owh_task() and owm_task(). Blocking time now reduced
 //   from 34 msec. to 24 msec.
@@ -560,7 +571,7 @@ void owm_task(void)
 			 This task is called every second so that every 2 seconds a new
 			 temperature is present.
   Variables: tboil_temp_87 : Boil-kettle temperature read from sensor in Q8.7 format
-			 tboil_err: 1=error
+			 tboil_err     : 1=error
   Returns  : -
   --------------------------------------------------------------------*/
 void owb_task(void)
@@ -591,7 +602,7 @@ void owb_task(void)
 			 This task is called every second so that every 2 seconds a new
 			 temperature is present.
   Variables: tboil_temp_87 : Boil-kettle temperature read from sensor in Q8.7 format
-			 tboil_err: 1=error
+			 tboil_err     : 1=error
   Returns  : -
   --------------------------------------------------------------------*/
 void owc_task(void)
