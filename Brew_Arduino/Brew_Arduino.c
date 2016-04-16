@@ -4,6 +4,12 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.25  2016/04/16 11:22:58  Emile
+// - One temperature slope parameter for all temps. Now fixed value (2 degrees/second).
+// - Temp. Offset parameters removed.
+// - All parameters > 12 removed from parameter list. Now only pars 1-6 left.
+// - Tasks for CFC and Boil Temperature added.
+//
 // Revision 1.24  2016/04/01 14:06:08  Emile
 // - Bugfix PWM generation. Now both PWM signals work with PCB v3.30.
 //
@@ -227,9 +233,8 @@ ISR (PCINT1_vect)
 	uint8_t temp,flows;
 	
 	temp      = PINC & 0x0F;       // Read only Flow-sensor port-pins
-	flows     = temp & !old_flows; // Detect rising-edge for all flows
+	flows     = temp & ~old_flows; // Detect rising edge for all flows
 	old_flows = temp;              // Save flow-sensor port-pins
-	
 	if (flows & 0x08)
 	{   // Rising edge on FLOW1
 		flow_hlt_mlt++;  /* PC3/PCINT11 rising edge */
@@ -596,6 +601,7 @@ void owb_task(void)
 				owb_std = 1;
 				break;
 		case 1: // Read Tboil device
+		        tboil_old_87 = tboil_temp_87; // copy previous value of tboil_temp
 			    tmp = ds18b20_read(DS2482_TBOIL_BASE, &tboil_err,1);
 				if (!tboil_err)
 				{
@@ -633,7 +639,8 @@ void owc_task(void)
 				owc_std = 1;
 				break;
 		case 1: // Read Tcfc device
-			    tcfc_temp_87 = ds18b20_read(DS2482_TCFC_BASE, &tcfc_err,1);
+		        tcfc_old_87 = tcfc_temp_87; // copy previous value of tcfc_temp
+			    tmp = ds18b20_read(DS2482_TCFC_BASE, &tcfc_err,1);
 				if (!tcfc_err)
 				{
 					slope_limiter(temp_slope_87, tcfc_old_87, &tmp);
