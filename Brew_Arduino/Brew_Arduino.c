@@ -4,6 +4,9 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.24  2016/04/01 14:06:08  Emile
+// - Bugfix PWM generation. Now both PWM signals work with PCB v3.30.
+//
 // Revision 1.23  2016/01/10 16:00:23  Emile
 // First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
 // - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
@@ -142,10 +145,10 @@ uint8_t  gas_non_mod_hlimit = 35; // Hysteresis upper-limit parameter
 uint8_t  gas_mod_pwm_llimit = 2;  // Modulating gas-valve Hysteresis lower-limit parameter
 uint8_t  gas_mod_pwm_hlimit = 4;  // Modulating gas-valve Hysteresis upper-limit parameter
 
-uint8_t    btmr_on_val  = 0;          // ON-timer  for PWM to Time-Division Boil-kettle
-uint8_t    btmr_off_val = 0;         // OFF-timer for PWM to Time-Division Boil-kettle
-uint8_t    htmr_on_val  = 0;          // ON-timer  for PWM to Time-Division HLT
-uint8_t    htmr_off_val = 0;         // OFF-timer for PWM to Time-Division HLT
+uint8_t    btmr_on_val  = 0;        // ON-timer  for PWM to Time-Division Boil-kettle
+uint8_t    btmr_off_val = 0;        // OFF-timer for PWM to Time-Division Boil-kettle
+uint8_t    htmr_on_val  = 0;        // ON-timer  for PWM to Time-Division HLT
+uint8_t    htmr_off_val = 0;        // OFF-timer for PWM to Time-Division HLT
 
 //-----------------------------------
 // LM35 parameters and variables
@@ -156,40 +159,41 @@ uint16_t triac_llimit  = 6500;      // Hysteresis lower-limit for triac_too_hot 
 uint16_t triac_hlimit  = 7500;	    // Hysteresis upper-limit for triac_too_hot in E-2 °C
 uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
 
-//-----------------------------------
-// THLT parameters and variables
-//-----------------------------------
+//------------------------------------------------
+// THLT parameters and variables (I2C or One-Wire)
+//------------------------------------------------
+int16_t  temp_slope_87  = 512;      // Temperature slope-limiter is 4 °C/ 2 sec. * 128
 ma       thlt_ma;                   // struct for THLT moving_average filter
 int16_t  thlt_old_87;               // Previous value of thlt_temp_87
 int16_t  thlt_temp_87;              // THLT Temperature from LM92 in °C * 128
 int16_t  thlt_ow_87;                // THLT Temperature from DS18B20 in °C * 128
-int16_t  thlt_offset_87 = 0;        // THLT offset-correction in °C * 128
-int16_t  thlt_slope_87  = 512;      // THLT slope-limiter is 4 °C/ 2 sec. * 128
 uint8_t  thlt_err       = 0;        // 1 = Read error from LM92
 uint8_t  thlt_ow_err    = 0;	    // 1 = Read error from DS18B20
  
-//-----------------------------------
-// TMLT parameters and variables
-//-----------------------------------
+//------------------------------------------------
+// TMLT parameters and variables (I2C or One-Wire)
+//------------------------------------------------
 ma       tmlt_ma;                   // struct for TMLT moving_average filter
 int16_t  tmlt_old_87;               // Previous value of tmlt_temp_87
 int16_t  tmlt_temp_87;              // TMLT Temperature from LM92 in °C * 128
 int16_t  tmlt_ow_87;                // TMLT Temperature from DS18B20 in °C * 128
-int16_t  tmlt_offset_87 = 0;        // TMLT offset-correction in °C * 128
-int16_t  tmlt_slope_87  = 512;      // TMLT slope-limiter is 4 °C/ 2 sec. * 128
 uint8_t  tmlt_err       = 0;        // 1 = Read error from LM92
 uint8_t  tmlt_ow_err    = 0;	    // 1 = Read error from DS18B20
 
+//------------------------------------------------
+// TCFC parameters and variables (One-Wire only)
+//------------------------------------------------
 ma       tcfc_ma;                   // struct for TCFC moving_average filter
+int16_t  tcfc_old_87;               // Previous value of tcfc_temp_87
 int16_t  tcfc_temp_87;              // TCFC Temperature in °C * 128
-int16_t  tcfc_offset_87 = 0;        // TCFC offset-correction in °C * 128
-int16_t  tcfc_slope_87  = 512;      // TCFC slope-limiter in °C/2 sec. * 128
 uint8_t  tcfc_err       = 0;        // 1 = Read error from DS18B20  
 
+//------------------------------------------------
+// TBOIL parameters and variables (One-Wire only)
+//------------------------------------------------
 ma       tboil_ma;                  // struct for TBOIL moving_average filter
+int16_t  tboil_old_87;              // Previous value of tboil_temp_87
 int16_t  tboil_temp_87;             // TBOIL Temperature in °C * 128
-int16_t  tboil_offset_87 = 0;       // TBOIL offset-correction in °C * 128
-int16_t  tboil_slope_87  = 512;     // TBOIL slope-limiter in °C/2 sec. * 128
 uint8_t  tboil_err       = 0;       // 1 = Read error from DS18B20
 
 unsigned long    t2_millis     = 0UL;
@@ -282,7 +286,7 @@ void delay_msec(uint16_t ms)
 			 It uses the tmr_on_val and tmr_off_val values which were set by the
 			 process_pwm_signal. If Electrical Heating (with a heating element)
 			 is NOT enabled, this routine returns immediately without doing 
-			 anything.
+			 anything. Called by pwm_task().
   Variables: std_td     : the STD state number
 			 htimer     : the ON-timer
 			 ltimer     : the OFF-timer
@@ -370,6 +374,16 @@ void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_o
 	mcp230xx_write(OLATB,portb); // write updated bit-values back to MCP23017 PORTB
 } // pwm_2_time()
 
+/*-----------------------------------------------------------------------------
+  Purpose  : This task converts a PWM signal into a time-division signal of 
+             100 * 50 msec. This routine should be called from the timer-interrupt 
+			 every 50 msec. It uses the tmr_on_val and tmr_off_val values which 
+			 were set by the process_pwm_signal. If Electrical Heating (with a 
+			 heating element) is NOT enabled, this routine returns immediately 
+			 without doing anything.
+  Variables: - 
+  Returns  : -
+  ---------------------------------------------------------------------------*/
 void pwm_task(void)
 {
    static uint8_t stdb  = IDLE; // STD number for Boil
@@ -429,8 +443,7 @@ void lm35_task(void)
 			 This task is called every 2 seconds and uses the output from
 			 ow_task(), which delivers a new DS18B20 reading every 2 seconds.
   Variables: thlt_old_87   : previous value of thlt_temp_87
-			 thlt_offset_87: the correction in temperature in °C
-			 tmlt_slope_87 : the slope-limit in °C/sec.
+			 temp_slope_87 : the slope-limit: 2 °C/sec.
 			 thlt_err      : 1 = error reading from LM92 (I2C)
 			 thlt_ow_err   : 1 = error reading from DS18B20 (One-Wire)
 			 thlt_ow_87    : Temperature value from DS18B20 (One-Wire)
@@ -451,8 +464,7 @@ void thlt_task(void)
 	} // if
 	if (!thlt_err) 
 	{	// filter if either I2C or One-Wire has been read successfully
-		tmp += thlt_offset_87; // add offset
-		slope_limiter(thlt_slope_87, thlt_old_87, &tmp);
+		slope_limiter(temp_slope_87, thlt_old_87, &tmp);
 		thlt_temp_87 = (int16_t)(moving_average(&thlt_ma, (float)tmp) + 0.5);
 	} // if
 } // thlt_task()
@@ -470,8 +482,7 @@ void thlt_task(void)
 			 This task is called every 2 seconds and uses the output from
 			 ow_task(), which delivers a new DS18B20 reading every 2 seconds.
   Variables: tmlt_old_87   : previous value of tmlt_temp_87
-			 tmlt_offset_87: the correction in temperature in °C
-			 tmlt_slope_87 : the slope-limit in °C/sec.
+			 temp_slope_87 : the slope-limit: 2 °C/sec.
 			 tmlt_err      : 1 = error reading from LM92 (I2C)
 			 tmlt_ow_err   : 1 = error reading from DS18B20 (One-Wire)
 			 tmlt_ow_87    : Temperature value from DS18B20 (One-Wire)
@@ -492,8 +503,7 @@ void tmlt_task(void)
 	} // if
 	if (!tmlt_err)
 	{	// filter if either I2C or One-Wire has been read successfully
-		tmp += tmlt_offset_87; // add offset
-		slope_limiter(tmlt_slope_87, tmlt_old_87, &tmp);
+		slope_limiter(temp_slope_87, tmlt_old_87, &tmp);
 		tmlt_temp_87 = (int16_t)(moving_average(&tmlt_ma, (float)tmp) + 0.5);
 	} // else
 } // tmlt_task()
@@ -577,6 +587,7 @@ void owm_task(void)
 void owb_task(void)
 {
 	static int owb_std = 0; // internal state
+	int16_t    tmp;         // temporary variable (signed Q8.7 format)
 	
 	switch (owb_std)
 	{   
@@ -585,7 +596,12 @@ void owb_task(void)
 				owb_std = 1;
 				break;
 		case 1: // Read Tboil device
-			    tboil_temp_87 = ds18b20_read(DS2482_TBOIL_BASE, &tboil_err,1);
+			    tmp = ds18b20_read(DS2482_TBOIL_BASE, &tboil_err,1);
+				if (!tboil_err)
+				{
+					slope_limiter(temp_slope_87, tboil_old_87, &tmp);
+					tboil_temp_87 = (int16_t)(moving_average(&tboil_ma, (float)tmp) + 0.5);
+				} // if
 				owb_std = 0;
 				break;
 	} // switch
@@ -593,21 +609,22 @@ void owb_task(void)
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperatures from
-			 the Boil-kettle One-Wire sensor. The sensor has its
-			 own DS2482 I2C-to-One-Wire bridge. Since this sensor has 4
+			 the Counterflow Chiller (CFC) One-Wire sensor. The sensor has
+			 its own DS2482 I2C-to-One-Wire bridge. Since this sensor has 4
 			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
 			 would be sufficient. However all variables are stored in a
 			 Q8.7 format for accuracy reasons when filtering. All variables
 			 with this format have the extension _87.
 			 This task is called every second so that every 2 seconds a new
 			 temperature is present.
-  Variables: tboil_temp_87 : Boil-kettle temperature read from sensor in Q8.7 format
-			 tboil_err     : 1=error
+  Variables: tcfc_temp_87 : CFC temperature read from sensor in Q8.7 format
+			 tcfc_err     : 1=error
   Returns  : -
   --------------------------------------------------------------------*/
 void owc_task(void)
 {
 	static int owc_std = 0; // internal state
+	int16_t    tmp;         // temporary variable (signed Q8.7 format)
 	
 	switch (owc_std)
 	{   
@@ -615,8 +632,13 @@ void owc_task(void)
 				ds18b20_start_conversion(DS2482_TCFC_BASE);
 				owc_std = 1;
 				break;
-		case 1: // Read Tboil device
+		case 1: // Read Tcfc device
 			    tcfc_temp_87 = ds18b20_read(DS2482_TCFC_BASE, &tcfc_err,1);
+				if (!tcfc_err)
+				{
+					slope_limiter(temp_slope_87, tcfc_old_87, &tmp);
+					tcfc_temp_87 = (int16_t)(moving_average(&tcfc_ma, (float)tmp) + 0.5);
+				} // if
 				owc_std = 0;
 				break;
 	} // switch
@@ -626,9 +648,8 @@ void owc_task(void)
   Purpose  : This function initializes all the Arduino ports that 
              are used by the E-brew hardware and it initializes the
 			 timer-interrupt to 1 msec. (1 kHz)
-			 ADC6 (LM35), ADC0/PC0/PCINT8 (FLOW4),
-ADC1/PC1/PCINT9 (FLOW3), ADC2/PC2/PCINT10 (FLOW2) and ADC3/PC3/PCINT11 are inputs.
-
+			 ADC6 (LM35), ADC0/PC0/PCINT8 (FLOW4), ADC1/PC1/PCINT9 (FLOW3), 
+			 ADC2/PC2/PCINT10 (FLOW2) and ADC3/PC3/PCINT11 are inputs.
   Variables: -
   Returns  : -
   ------------------------------------------------------------------*/

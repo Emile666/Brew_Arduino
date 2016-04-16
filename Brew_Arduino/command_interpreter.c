@@ -4,6 +4,17 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.19  2016/01/10 16:00:24  Emile
+// First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
+// - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
+// - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
+// - Wxxx command is now Hxxx command, new Bxxx command added.
+// - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
+// - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
+// - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
+// - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
+// - set_parameter(): parameters 7-12 removed.
+//
 // Revision 1.18  2015/08/06 14:41:16  Emile
 // - Adapted for MCP23008 instead of MCP23017.
 //
@@ -114,23 +125,15 @@ extern uint16_t   triac_hlimit;	       // Hysteresis upper-limit for triac_too_h
 // This is used for both the HLT and MLT temperatures
 //------------------------------------------------------
 extern int16_t    thlt_temp_87;        // THLT Temperature in °C * 128
-extern int16_t    thlt_offset_87;      // THLT offset-correction in °C * 128
-extern int16_t    thlt_slope_87;       // THLT slope-limiter is °C/2 sec. * 128
 extern uint8_t    thlt_err;
 
 extern int16_t    tmlt_temp_87;        // TMLT Temperature in °C * 128
-extern int16_t    tmlt_offset_87;      // TMLT offset-correction in °C * 128
-extern int16_t    tmlt_slope_87;       // TMLT slope-limiter in °C/2 sec. * 128
 extern uint8_t    tmlt_err;
 
 extern int16_t    tcfc_temp_87;        // TCFC Temperature in °C * 128
-extern int16_t    tcfc_offset_87;      // TCFC offset-correction in °C * 128
-extern int16_t    tcfc_slope_87;       // TCFC slope-limiter in °C/2 sec. * 128
 extern uint8_t    tcfc_err;
 
 extern int16_t    tboil_temp_87;        // TBOIL Temperature in °C * 128
-extern int16_t    tboil_offset_87;      // TBOIL offset-correction in °C * 128
-extern int16_t    tboil_slope_87;       // TBOIL slope-limiter in °C/2 sec. * 128
 extern uint8_t    tboil_err;
 
 extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
@@ -280,25 +283,6 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 				break;
 		case 6:  // Upper-limit for switching of Electrical Heating (triac_too_hot) [°C]
 				triac_hlimit = val;
-				break;
-		case 7:  // REMOVED: Offset to add to HLT Volume measurement [E-1 L]
-		case 8:  // REMOVED: Max. volume of HLT kettle [E-1 L]
-		case 9:  // REMOVED: Slope-Limiter for HLT Volume measurement [E-1 L/sec.]
-		case 10: // REMOVED: Offset to add to MLT Volume measurement [E-1 L]
-		case 11: // REMOVED: Max. volume of MLT kettle [E-1 L]
-		case 12: // REMOVED: Slope-Limiter for MLT Volume measurement [E-1 L/sec.]
-				break;
-		case 13: // Offset (Q8.7) to add to HLT Temp. measurement [°C/128]
-				thlt_offset_87 = val;
-				break;
-		case 14: // Slope Limiter (Q8.7) for HLT Temp. measurement [°C/(128.2sec.)]
-				thlt_slope_87 = val;
-				break;
-		case 15: // Offset (Q8.7) to add to MLT Temp. measurement [°C/128]
-				tmlt_offset_87 = val;
-				break;
-		case 16: // Slope Limiter (Q8.7) for MLT Temp. measurement [°C/(128.2sec.)]
-				tmlt_slope_87 = val;
 				break;
 		default: break;
 	} // switch
@@ -483,7 +467,7 @@ void process_flow(uint32_t flow_val, char *name)
 				    - Time-Division ON/OFF signal for Electrical heating-element (N0=2)
    - L0 / L1      : ALIVE Led OFF / ON
    - N0           : System-Mode: 0=Modulating, 1=Non-Modulating, 2=Electrical
-     N1..N16      : Parameter settings
+     N1..N6       : Parameter settings
    - P0 / P1      : set Pump OFF / ON
    - S0           : Ebrew hardware revision number
 	 S1			  : List value of parameters that can be set with Nx command
@@ -597,19 +581,18 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 break;
 
 	   case 'n': // Set parameters / variables to a new value
-				 if (((num >  9) && ((s[3] != ' ') || (strlen(s) < 5))) ||
-				     ((num < 10) && ((s[2] != ' ') || (strlen(s) < 4))))
-				 {  // check for error in command: 'nx yy' or 'nxx yy'
+				 if ((s[2] != ' ') || (strlen(s) < 4))
+				 {  // check for error in command: 'nx yy'
 					rval = ERR_CMD; 
 				 } // if				 
-	             else if (num > 16)
+	             else if (num > 6)
 				 {
 					 rval = ERR_NUM;
 				 } // else if
 				 else
 				 {
-					temp = atoi(&s[(num > 9) ? 3 : 2]); // convert to number
-					err  = set_parameter(num,temp);     // set parameter to a new value
+					temp = atoi(&s[2]);             // convert to number
+					err  = set_parameter(num,temp); // set parameter to a new value
 					if (err != NO_ERR) rval = err;
 				 } // else
 	             break;
@@ -642,10 +625,6 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					                    gas_non_mod_llimit, gas_non_mod_hlimit,
 					                    gas_mod_pwm_llimit, gas_mod_pwm_hlimit,
 										triac_llimit, triac_hlimit);
-				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
-							 sprintf(s2,"TxLT:o=%d,s=%d,o=%d,s=%d\n",
-									     thlt_offset_87,thlt_slope_87,
-										 tmlt_offset_87,tmlt_slope_87);
 				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 							 break;
 					 case 2: // List all I2C devices
