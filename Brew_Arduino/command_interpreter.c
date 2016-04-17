@@ -4,6 +4,12 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.20  2016/04/16 11:22:58  Emile
+// - One temperature slope parameter for all temps. Now fixed value (2 degrees/second).
+// - Temp. Offset parameters removed.
+// - All parameters > 12 removed from parameter list. Now only pars 1-6 left.
+// - Tasks for CFC and Boil Temperature added.
+//
 // Revision 1.19  2016/01/10 16:00:24  Emile
 // First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
 // - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
@@ -410,14 +416,15 @@ void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val)
 	 val_87: the actual value of the temperature sensor in Q8.7 format
   Returns  : -
   ---------------------------------------------------------------------------*/
-void process_temperature(uint8_t err, char *name, int16_t val_87)
+void process_temperatures(uint8_t err, char *name, int16_t val_87, uint8_t last)
 {
    uint16_t temp, frac_16;
-   char     s2[25];
+   char     s2[20];
    
    if (err)
-   {
-	   strcat(name,"=99.99\n"); // error
+   {   // error
+	   if (last) strcat(name,"99.99\n");
+	   else      strcat(name,"99.99,");
    }
    else
    {
@@ -426,10 +433,11 @@ void process_temperature(uint8_t err, char *name, int16_t val_87)
 	   frac_16 *= 25;              // 100 / 128 = 25 / 32
 	   frac_16 += 16;              // 0.5 for rounding
 	   frac_16 >>= 5;              // SHR 5 = divide by 32
-	   sprintf(s2,"%s=%d.%02d\n",name,temp,frac_16);
-	   strcpy(name,s2);            // store result back in *name
+	   if (last) sprintf(s2,"%d.%02d\n",temp,frac_16);
+	   else      sprintf(s2,"%d.%02d," ,temp,frac_16);
+	   strcat(name,s2);            // store result back in *name
    } // else
-} // process_temperature()
+} // process_temperatures()
 
 /*-----------------------------------------------------------------------------
   Purpose  : Builds a string that can be returned via RS232/Ethernet.
@@ -438,28 +446,28 @@ void process_temperature(uint8_t err, char *name, int16_t val_87)
        name: the string with the sensor name. Also used to return the result.
   Returns  : -
   ---------------------------------------------------------------------------*/
-void process_flow(uint32_t flow_val, char *name)
+void process_flows(uint32_t flow_val, char *name, uint8_t last)
 {
    uint16_t temp, frac_16;
-   char     s2[25];
+   char     s2[20];
    
    temp     = (uint16_t)((flow_val * 100 + FLOW_ROUND_OFF) / FLOW_PER_L); // Flow in E-2 Litres
    frac_16  = temp / 100;
    frac_16  = temp - 100 * frac_16;
-   sprintf(s2,"%s=%d.%02d\n",name,temp/100,frac_16);
-   strcpy(name,s2);  // store result back in *name
-} // process_flow()
+   if (last)
+        sprintf(s2,"%d.%02d\n",temp/100,frac_16);
+   else sprintf(s2,"%d.%02d," ,temp/100,frac_16);
+   strcat(name,s2);  // store result back in *name
+} // process_flows()
 
 /*-----------------------------------------------------------------------------
   Purpose: interpret commands which are received via the USB serial terminal:
-   - A0           : Read Analog value: LM35 temperature sensor
-   - A1 .. A4     : Read Temperature sensors: THLT / TMLT / TBOIL / TCFC
-   - A5 .. A8     : Read flow sensors: HLT->MLT, MLT->BOIL, CFC-out, Flow4
+   - A0           : Read Temperature sensors: THLT / TMLT / TBOIL / TCFC
+   - A9           : Read flow sensors: HLT->MLT, MLT->BOIL, CFC-out, Flow4
    - B0...B100    : PID-output for Boil-kettle, needed for:
 				    - PWM output for modulating gas-valve (N0=0)
 				    - Time-Division ON/OFF signal for Non-Modulating gas-valve (N0=1)
 				    - Time-Division ON/OFF signal for Electrical heating-element (N0=2)
-   - D0 / D1      : Disable (0) or Enable (1) Debug-Mode
    - E0 / E1      : Ethernet with WIZ550io Disabled / Enabled
    - H0...H100    : PID-output for HLT, needed for:
 				    - PWM output for modulating gas-valve (N0=0)
@@ -490,48 +498,27 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
    
    switch (s[0])
    {
-	   case 'a': // Read analog (LM35, VHLT, VMLT) + digital (THLT, TMLT) values
+	   case 'a': // Read Temperatures and Flows
 				 if (rs232_udp == ETHERNET_UDP) 
 				 {
 					 udp_beginPacketIP(remoteIP, localPort); // send response back
 				 } // if				 
 				 switch (num)
 				 {
-				    case 0: // LM35. Processing is done by lm35_task()
+				    case 0: // Temperature Processing, send all Temperatures to PC
 							temp = lm35_temp / 100;
-							sprintf(s2,"Lm35=%d.%02d\n",temp,lm35_temp-100*temp);
+							sprintf(s2,"T=%d.%02d,",temp,lm35_temp-100*temp);   // LM35
+							process_temperatures(thlt_err,s2,thlt_temp_87,0);   // Thlt
+					        process_temperatures(tmlt_err,s2,tmlt_temp_87,0);   // Tmlt
+					        process_temperatures(tboil_err,s2,tboil_temp_87,0); // Tboil
+					        process_temperatures(tcfc_err,s2,tcfc_temp_87,1);   // Tcfc
 							break;
-					case 1: // THLT. Processing is done by thlt_task()
-					        strcpy(s2,"Thlt");
-							process_temperature(thlt_err,s2,thlt_temp_87);
-							break;
-					case 2: // TMLT. Processing is done by tmlt_task()
-					        strcpy(s2,"Tmlt");
-					        process_temperature(tmlt_err,s2,tmlt_temp_87);
-							break;
-					case 3: // TBOIL. Processing is done by tboil_task()
-					        strcpy(s2,"Tboil");
-					        process_temperature(tboil_err,s2,tboil_temp_87);
-							break;
-					case 4: // TCFC. Processing is done by tcfc_task()
-					        strcpy(s2,"Tcfc");
-					        process_temperature(tcfc_err,s2,tcfc_temp_87);
-							break;
-					case 5: // FLOW1: flow-sensor processing is done by ISR(PCINT1_vect)
-					        strcpy(s2,"Flow1");
-						    process_flow(flow_hlt_mlt,s2);
-							break;
-					case 6: // FLOW2: flow-sensor processing is done by ISR(PCINT1_vect)
-					        strcpy(s2,"Flow2");
-							process_flow(flow_mlt_boil,s2);
-							break;
-					case 7: // FLOW3: flow-sensor processing is done by ISR(PCINT1_vect)
-					        strcpy(s2,"Flow3");
-							process_flow(flow_cfc_out,s2);
-							break;
-					case 8: // FLOW4: flow-sensor processing is done by ISR(PCINT1_vect)
-					        strcpy(s2,"Flow4");
-							process_flow(flow4,s2);
+					case 9: // FLOW Processing, send all flows to PC
+					        strcpy(s2,"F=");
+							process_flows(flow_hlt_mlt ,s2,0);
+							process_flows(flow_mlt_boil,s2,0);
+							process_flows(flow_cfc_out ,s2,0);
+							process_flows(flow4        ,s2,1);
 							break;
 					default: rval = ERR_NUM;
 					         break;
@@ -658,6 +645,8 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 			   break;
 
 	   default: rval = ERR_CMD;
+				sprintf(s2,"ERR.CMD[%s]\n",s);
+				xputs(s2);
 	            break;
    } // switch
    return rval;	
