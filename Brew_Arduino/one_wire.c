@@ -31,6 +31,12 @@
 //
 // ------------------------------------------------------------------
 // $Log$
+// Revision 1.4  2015/07/01 21:03:46  Emile
+// - Bug-fix in scheduler time-measurement. Now reads proper time in msec
+// - Usart comm. now IRQ driven, so that all receiving commands are handled
+// - DS18B20 reads only 2 bytes (instead of 9). Total time taken is now 28 msec.
+//   This was 60 msec. and caused multiple reads at PC side.
+//
 // Revision 1.3  2015/06/28 12:27:35  Emile
 // - Moving_average filters now work with Q8.7 instead of Q8.4 format
 // - One-wire functions now work with DS18B20
@@ -77,7 +83,7 @@ uint8_t OW_reset(uint8_t addr)
    uint8_t err, status;
    uint8_t poll_count = 0;
 
-	err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
 		err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
@@ -135,7 +141,7 @@ uint8_t OW_touch_bit(uint8_t sendbit, uint8_t addr)
    //                           Repeat until 1WB bit has changed to 0
    //  [] indicates from slave
    //  BB indicates byte containing bit value in msbit
-	err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
 		err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
@@ -211,7 +217,7 @@ uint8_t OW_write_byte(uint8_t sendbyte, uint8_t addr)
    //                             Repeat until 1WB bit has changed to 0
    //  [] indicates from slave
    //  DD data to write
-   err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+   err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
    if (!err) 
    {   // generate I2C start + output address to I2C bus
 	   err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
@@ -261,7 +267,7 @@ uint8_t OW_read_byte(uint8_t addr)
    //                                  
    //  [] indicates from slave
    //  DD data read
-   err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+   err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
    if (!err) 
    {   // generate I2C start + output address to I2C bus
 	   err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);

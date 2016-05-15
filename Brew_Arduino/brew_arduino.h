@@ -8,6 +8,17 @@
 				 R1.8 <-> ebrew R1.66
   ------------------------------------------------------------------
   $Log$
+  Revision 1.12  2016/01/10 16:00:24  Emile
+  First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
+  - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
+  - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
+  - Wxxx command is now Hxxx command, new Bxxx command added.
+  - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
+  - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
+  - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
+  - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
+  - set_parameter(): parameters 7-12 removed.
+
   Revision 1.11  2015/06/28 12:27:35  Emile
   - Moving_average filters now work with Q8.7 instead of Q8.4 format
   - One-wire functions now work with DS18B20
@@ -75,6 +86,7 @@
 #include "command_interpreter.h"
 #include "misc.h"
 #include "scheduler.h"
+#include "eep.h"
 
 // Uncomment the next line if a WIZ550io module is present
 //#define WIZ550io_PRESENT

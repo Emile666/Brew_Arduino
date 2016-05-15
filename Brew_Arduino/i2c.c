@@ -6,6 +6,17 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.13  2016/01/10 16:00:24  Emile
+  First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
+  - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
+  - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
+  - Wxxx command is now Hxxx command, new Bxxx command added.
+  - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
+  - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
+  - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
+  - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
+  - set_parameter(): parameters 7-12 removed.
+
   Revision 1.12  2015/08/06 14:41:16  Emile
   - Adapted for MCP23008 instead of MCP23017.
 
@@ -45,13 +56,14 @@
 #include "delay.h"         /* for delay_msec() */
 
 /*************************************************************************
- Initialization of the I2C bus interface. Need to be called only once
+ Initialization of the I2C bus interface. 
 *************************************************************************/
 void i2c_init(uint8_t clk)
 {
   /* initialize TWI clock: TWPS = 0x01 => prescaler = 4 */
   
-  TWSR = 0x01; /* pre-scaler = 4 */
+  if (clk == SCL_CLK_400KHZ) TWSR = 0x00; /* pre-scaler = 1 */
+  else                       TWSR = 0x01; /* pre-scaler = 4 */
   TWBR = clk;  /* must be > 10 for stable operation */
 } /* i2c_init() */
 
@@ -222,8 +234,12 @@ unsigned char i2c_readNak(void)
 //  ch       : [PCA9544_CH0, PCA9544_CH1, PCA9544_CH2, PCA9544_CH3]
 //  Returns  : I2C_ACK, I2C_NACK
 //---------------------------------------------------------------------
-enum i2c_acks i2c_select_channel(uint8_t ch)
+enum i2c_acks i2c_select_channel(uint8_t ch, uint8_t speed)
 {
+   if (speed == HSPEED) 
+        i2c_init(SCL_CLK_400KHZ); // I2C-clock is 400 kHz
+   else i2c_init(SCL_CLK_50KHZ);  // I2C-clock is  50 kHz
+
    if (i2c_start(PCA9544) == I2C_NACK) // generate I2C start + output address to I2C bus
    {
 	   return I2C_NACK; // NACK received, return error code
@@ -258,12 +274,12 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
    if (dvc == THLT)
    {
       adr  = THLT_BASE | I2C_READ; 
-	  *err = (i2c_select_channel(THLT_I2C_CH) != I2C_ACK);
+	  *err = (i2c_select_channel(THLT_I2C_CH, LSPEED) != I2C_ACK);
    } // if
    else if (dvc == TMLT)
    {
 	  adr  = TMLT_BASE | I2C_READ; 
-	  *err = (i2c_select_channel(TMLT_I2C_CH) != I2C_ACK);
+	  *err = (i2c_select_channel(TMLT_I2C_CH, LSPEED) != I2C_ACK);
    } // else if
    else *err = TRUE;
    
@@ -346,7 +362,7 @@ uint8_t mcp230xx_read(uint8_t reg)
 {
 	uint8_t err, ret = 0;
 	
-	err = (i2c_select_channel(MCP230XX_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(MCP230XX_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
 		err = (i2c_start(MCP230XX_BASE | I2C_WRITE) == I2C_NACK); 
@@ -373,7 +389,7 @@ uint8_t mcp230xx_write(uint8_t reg, uint8_t data)
 {
 	uint8_t err;
 		
-	err = (i2c_select_channel(MCP230XX_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(MCP230XX_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
 		err = (i2c_start(MCP230XX_BASE | I2C_WRITE) == I2C_NACK);
@@ -403,7 +419,7 @@ int8_t ds2482_reset(uint8_t addr)
 {
    uint8_t err, ret;
 
-	err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
 		err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
@@ -439,7 +455,7 @@ int8_t ds2482_write_config(uint8_t addr)
 {
    uint8_t err, read_config;
 
-	err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+	err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
 		err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);
@@ -498,7 +514,7 @@ uint8_t ds2482_search_triplet(uint8_t search_direction, uint8_t addr)
    //                           Repeat until 1WB bit has changed to 0
    //  [] indicates from slave
    //  SS indicates byte containing search direction bit value in msbit
-   err = (i2c_select_channel(DS2482_I2C_CH) != I2C_ACK);
+   err = (i2c_select_channel(DS2482_I2C_CH, HSPEED) != I2C_ACK);
    if (!err) 
    {   // generate I2C start + output address to I2C bus
 	   err = (i2c_start(addr | I2C_WRITE) == I2C_NACK);

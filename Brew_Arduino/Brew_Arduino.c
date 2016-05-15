@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.26  2016/04/16 19:39:04  Emile
+// - Bugfix reading flowsensor values
+// - Bugfix Tcfc and Tboil reading tasks.
+//
 // Revision 1.25  2016/04/16 11:22:58  Emile
 // - One temperature slope parameter for all temps. Now fixed value (2 degrees/second).
 // - Temp. Offset parameters removed.
@@ -788,6 +792,9 @@ int main(void)
 	pwm_write(PWMB,0);	     // Start with 0 % duty-cycle for Boil-kettle
 	pwm_write(PWMH,0);	     // Start with 0 % duty-cycle for HLT
 
+    check_and_init_eeprom(); // EEPROM init.
+	read_eeprom_parameters();// Read EEPROM value for ETHUSB
+	
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
@@ -822,7 +829,11 @@ int main(void)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if
-	
+	if (ethernet_WIZ550i)      // Initialize Ethernet adapter
+	{
+		init_WIZ550IO_module();
+	} // if
+		
     while(1)
     {
 	    dispatch_tasks(); // run the task-scheduler
@@ -844,7 +855,7 @@ int main(void)
 				udp_rcv_buf[udp_packet_size] = '\0';
 				ethernet_command_handler((char *)udp_rcv_buf);
 			} // if	
-			delay_msec(10);	
+			//delay_msec(10);	
 		} // if
     } // while()
 } // main()

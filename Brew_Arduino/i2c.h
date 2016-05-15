@@ -6,6 +6,17 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.11  2016/01/10 16:00:24  Emile
+  First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
+  - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
+  - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
+  - Wxxx command is now Hxxx command, new Bxxx command added.
+  - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
+  - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
+  - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
+  - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
+  - set_parameter(): parameters 7-12 removed.
+
   Revision 1.10  2015/08/06 14:41:16  Emile
   - Adapted for MCP23008 instead of MCP23017.
 
@@ -43,6 +54,9 @@
 // so that the prescaler value equals 4.
 // 100 kHz: TWBR = 18 (should be > 10)
 //  10 kHz: TWBR = 198 (should be < 255)
+//
+// For 400 kHz: TWSR should be set to 0x00,
+//              so that the prescaler equals 1!
 //-------------------------------------------
 #define SCL_CLK_10KHZ  (((F_CPU/10000)-16)/8)
 #define SCL_CLK_20KHZ  (((F_CPU/20000)-16)/8)
@@ -54,6 +68,7 @@
 #define SCL_CLK_80KHZ  (((F_CPU/80000)-16)/8)
 #define SCL_CLK_90KHZ  (((F_CPU/90000)-16)/8)
 #define SCL_CLK_100KHZ (((F_CPU/100000)-16)/8)
+#define SCL_CLK_400KHZ (((F_CPU/400000)-16)/2)
 
 #if SCL_CLK_100KHZ < 11
 #error "SCL_CLK_100KHZ value too small"
@@ -61,6 +76,9 @@
 #if SCL_CLK_10KHZ > 255
 #error "SCL_CLK_10KHZ value too big"
 #endif
+
+#define LSPEED (0)
+#define HSPEED (1)
 
 //-------------------------------------------------------------------------
 // MCP23008 8-BIT  IO Expander
@@ -113,6 +131,8 @@
 // Channel 0: CON14 SPI_I2C_BUS (as of HW PCB V3.01)
 //            DS2482   (0x30)   (as of HW PCB V3.03)
 //            DS2482   (0x36)   (as of HW PCB V3.03)
+//            DS2482   (0x32)   (as of HW PCB V3.30)
+//            DS2482   (0x34)   (as of HW PCB V3.30)
 // Channel 1: MCP23017 (0x40)   (as of HW PCB V3.01)
 // Channel 2: I2C for LM92_0
 // Channel 3: I2C for LM92_1
@@ -202,7 +222,7 @@ enum i2c_acks i2c_write(unsigned char data); // Send one byte to I2C device
 unsigned char i2c_readAck(void); // read one byte from the I2C device, request more data from device
 unsigned char i2c_readNak(void); // read one byte from the I2C device, read is followed by a stop condition
 unsigned char i2c_read(unsigned char ack); // read one byte from the I2C device
-enum i2c_acks i2c_select_channel(uint8_t ch); // Set PCA9544 channel
+enum i2c_acks i2c_select_channel(uint8_t ch, uint8_t speed); // Set PCA9544 channel and I2C-clock
 
 int16_t       lm92_read(uint8_t dvc, uint8_t *err);
 

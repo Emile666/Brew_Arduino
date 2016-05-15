@@ -94,6 +94,12 @@
     <Compile Include="Dns.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="eep.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="eep.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="Ethernet.c">
       <SubType>compile</SubType>
     </Compile>

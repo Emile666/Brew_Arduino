@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.21  2016/04/17 12:55:32  Emile
+// - Version after Integration Testing. Works with ebrew r1.81.
+// - Temps (A0) and Flows (A9) now combined instead of separate readings
+//
 // Revision 1.20  2016/04/16 11:22:58  Emile
 // - One temperature slope parameter for all temps. Now fixed value (2 degrees/second).
 // - Temp. Offset parameters removed.
@@ -104,7 +108,9 @@
 #include "misc.h"
 #include "Udp.h"
 #include "one_wire.h"
+#include "eep.h"
 
+extern uint8_t      localIP[4];  // local IP address
 extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed
 extern unsigned int localPort;   // local port to listen on 	
 extern uint8_t      ROM_NO[];    // One-wire hex-address
@@ -164,7 +170,7 @@ void i2c_scan(uint8_t ch, bool rs232_udp)
 	int     i;     // Leave this as an int!
 	const uint8_t none[] = "none";
 	
-	if (i2c_select_channel(ch) == I2C_NACK)
+	if (i2c_select_channel(ch, LSPEED) == I2C_NACK)
 	{
 		sprintf(s,"Could not open I2C[%d]\n",ch);
 	    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
@@ -492,9 +498,10 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
 uint8_t execute_single_command(char *s, bool rs232_udp)
 {
    uint8_t  num  = atoi(&s[1]); // convert number in command (until space is found)
-   uint8_t  rval = NO_ERR, err, portb;
+   uint8_t  rval = NO_ERR, err, portb, i;
    uint16_t temp;
    char     s2[40]; // Used for printing to RS232 port
+   char     *s1;
    
    switch (s[0])
    {
@@ -540,16 +547,28 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				break;
 
 	   case 'e': // Enable/Disable Ethernet with WIZ550io
-			   if (num > 1) rval = ERR_NUM;
-			   else
+			   if (num < 2)
 			   {
-				   if (num)
-				   {   
-					   init_WIZ550IO_module(); // this hangs the system if no WIZ550io is present!!!
-					   ethernet_WIZ550i = true;
-				   }				   	
-				   else	ethernet_WIZ550i = false;
-			   } // else
+				   if (num) ethernet_WIZ550i = true;
+				   else     ethernet_WIZ550i = false;
+				   write_eeprom_parameters(); // save value in eeprom
+				   if (ethernet_WIZ550i) init_WIZ550IO_module(); // this hangs the system if no WIZ550io is present!!!
+			   }
+			   else if (num == 2) 
+			   {   // IP address, e.g. "192.168.1.177:8888"
+				   s1 = strtok(&s[3],"."); localIP[0] = atoi(s1);
+				   for (i = 1; i < 4; i++) 
+				   {
+					   s1 = strtok(NULL ,".:"); 
+					   localIP[i] = atoi(s1);
+				   } // for i				
+				   s1 = strtok(NULL,":");
+				   localPort = atoi(s1);   
+				   write_eeprom_parameters(); // save IP address and Port in eeprom
+				   sprintf(s2,"IP:%d.%d.%d.%d:%d\n",localIP[0],localIP[1],localIP[2],localIP[3],localPort);
+				   xputs(s2);
+			   } // else if
+			   else rval = ERR_NUM;
 			   break;
 
 	   case 'h': // PWM signal for HLT Modulating Gas-Burner
