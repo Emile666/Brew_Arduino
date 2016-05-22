@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.22  2016/05/15 12:24:20  Emile
+// - I2C clock speed now adjustable
+// - IP address and port now stored in eeprom
+//
 // Revision 1.21  2016/04/17 12:55:32  Emile
 // - Version after Integration Testing. Works with ebrew r1.81.
 // - Temps (A0) and Flows (A9) now combined instead of separate readings
@@ -429,8 +433,8 @@ void process_temperatures(uint8_t err, char *name, int16_t val_87, uint8_t last)
    
    if (err)
    {   // error
-	   if (last) strcat(name,"99.99\n");
-	   else      strcat(name,"99.99,");
+	   if (last) strcat(name,"-99.9\n");
+	   else      strcat(name,"-99.9,");
    }
    else
    {
