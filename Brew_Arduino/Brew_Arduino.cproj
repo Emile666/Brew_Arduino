@@ -82,6 +82,12 @@
     <Compile Include="command_interpreter.c">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="delay.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="delay.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="Dhcp.c">
       <SubType>compile</SubType>
     </Compile>

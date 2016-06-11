@@ -6,6 +6,10 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.14  2016/05/15 12:24:20  Emile
+  - I2C clock speed now adjustable
+  - IP address and port now stored in eeprom
+
   Revision 1.13  2016/01/10 16:00:24  Emile
   First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
   - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
@@ -79,11 +83,12 @@ enum i2c_acks i2c_start(unsigned char address)
 
 	// send START condition
 	TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
-
+	delay_usec(30); // At 50 (400) kHz this takes approx. 200 (25) usec.
+	
 	// wait until transmission completed
 	while ((!(TWCR & (1<<TWINT))) && (retries < I2C_RETRIES))
-	{
-		delay_msec(1);
+	{	
+		delay_usec(200);
 		retries++;
 	} // while	
 

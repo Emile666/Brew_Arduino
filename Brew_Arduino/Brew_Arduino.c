@@ -4,6 +4,14 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.28  2016/05/22 12:14:58  Emile
+// - Baud-rate to 38400 Baud.
+// - Temperature error value now set to '-99.99'.
+//
+// Revision 1.27  2016/05/15 12:24:20  Emile
+// - I2C clock speed now adjustable
+// - IP address and port now stored in eeprom
+//
 // Revision 1.26  2016/04/16 19:39:04  Emile
 // - Bugfix reading flowsensor values
 // - Bugfix Tcfc and Tboil reading tasks.
@@ -742,8 +750,8 @@ void init_WIZ550IO_module(void)
 	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
 	delay_msec(150);           // Giver W5500 time to configure itself
 
-	Ethernet_begin_ip(localIP); // includes w5500_init() and spi_init()
-	x = udp_begin(localPort);   // init. UDP protocol
+	Ethernet_begin();          // includes w5500_init(), spi_init() and dhcp_begin()
+	x = udp_begin(localPort);  // init. UDP protocol
 
 	w5500_read_common_register(SHAR, bufr); // get MAC address
 	sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",bufr[0],bufr[1],bufr[2],bufr[3],bufr[4],bufr[5]);

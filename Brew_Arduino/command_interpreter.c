@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.23  2016/05/22 12:14:58  Emile
+// - Baud-rate to 38400 Baud.
+// - Temperature error value now set to '-99.99'.
+//
 // Revision 1.22  2016/05/15 12:24:20  Emile
 // - I2C clock speed now adjustable
 // - IP address and port now stored in eeprom
@@ -172,9 +176,9 @@ void i2c_scan(uint8_t ch, bool rs232_udp)
 	char    s[50]; // needed for printing to serial terminal
 	uint8_t x = 0;
 	int     i;     // Leave this as an int!
-	const uint8_t none[] = "none";
+	const uint8_t none[] = "-";
 	
-	if (i2c_select_channel(ch, LSPEED) == I2C_NACK)
+	if (i2c_select_channel(ch, HSPEED) == I2C_NACK)
 	{
 		sprintf(s,"Could not open I2C[%d]\n",ch);
 	    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
@@ -254,8 +258,8 @@ uint8_t ethernet_command_handler(char *s)
   while (s1 != NULL)
   {   // walk through other commands
 	  for (i = 0; i < strlen(s1); i++) s1[i] = tolower(s1[i]);
-	  sprintf(s2,"eth%1d=[%s]\n",cnt++,s1); 
-	  xputs(s2);
+	  //sprintf(s2,"eth%1d=[%s]\n",cnt++,s1); 
+	  //xputs(s2);
 	  rval = execute_single_command(s1, ETHERNET_UDP);
 	  s1 = strtok(NULL, "\n");
   } // while
@@ -319,6 +323,7 @@ void find_OW_device(uint8_t i2c_addr)
 			xputs(s2);
 		} // for								 
 	} // if
+	else xputs("-");
 	xputs("\n");							 
 } // find_OW_device()
 
@@ -647,7 +652,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					 case 3: // List all tasks
 							 list_all_tasks(rs232_udp); 
 							 break;	
-					 case 4: // List all One-Wire Devices
+					 case 4: // List all One-Wire Devices (finding a sensor costs approx. 350 msec.)
 							 find_OW_device(DS2482_THLT_BASE);  // Find ROM ID of HLT  DS18B20
 							 find_OW_device(DS2482_TBOIL_BASE); // Find ROM ID of BOIL DS18B20
 							 find_OW_device(DS2482_TCFC_BASE);  // Find ROM ID of CFC  DS18B20

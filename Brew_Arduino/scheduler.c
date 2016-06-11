@@ -10,6 +10,12 @@
             executing tasks in a cooperative (non pre-emptive) way.
   ------------------------------------------------------------------
   $Log$
+  Revision 1.6  2015/07/01 21:03:46  Emile
+  - Bug-fix in scheduler time-measurement. Now reads proper time in msec
+  - Usart comm. now IRQ driven, so that all receiving commands are handled
+  - DS18B20 reads only 2 bytes (instead of 9). Total time taken is now 28 msec.
+    This was 60 msec. and caused multiple reads at PC side.
+
   Revision 1.5  2014/05/03 11:27:44  Emile
   - Ethernet support added for W550io module
   - No response for L, N, P, W commands anymore
@@ -248,15 +254,16 @@ void list_all_tasks(bool rs232_udp)
 {
 	uint8_t index = 0;
 	char    s[50];
-	const char hdr[] = "Task-Name   T(ms) Stat T(ms) M(ms)\n";
+	//const char hdr[] = "Task-Name   T(ms) Stat T(ms) M(ms)\n";
 
-	rs232_udp == RS232_USB ? xputs(hdr) : udp_write((uint8_t *)hdr,strlen(hdr));
+	//rs232_udp == RS232_USB ? xputs(hdr) : udp_write((uint8_t *)hdr,strlen(hdr));
 	//go through the active tasks
 	if(task_list[index].Period != 0)
 	{
 		while (task_list[index].Period != 0)
 		{
-			sprintf(s,"%-11s %5d 0x%02x   %03d   %03d\n", task_list[index].Name, 
+			//sprintf(s,"%-11s %5d 0x%02x   %03d   %03d\n", task_list[index].Name,
+			sprintf(s,"%s,%d,%x,%d,%d\n", task_list[index].Name, 
 					  task_list[index].Period  , task_list[index].Status, 
 					  task_list[index].Duration, task_list[index].Duration_Max);
 			rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
