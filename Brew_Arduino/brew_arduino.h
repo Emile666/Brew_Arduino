@@ -8,6 +8,10 @@
 				 R1.8 <-> ebrew R1.66
   ------------------------------------------------------------------
   $Log$
+  Revision 1.13  2016/05/15 12:24:20  Emile
+  - I2C clock speed now adjustable
+  - IP address and port now stored in eeprom
+
   Revision 1.12  2016/01/10 16:00:24  Emile
   First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
   - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
@@ -112,6 +116,7 @@
 #define BOIL_NMOD  (0x04)
 #define BOIL_230V  (0x08)
 #define PUMP_230V  (0x10)
+#define PUMP2_230V (0x20)
 
 //-----------------------------
 // E-brew System Mode

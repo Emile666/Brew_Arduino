@@ -4,6 +4,10 @@
 // File   : command_interpreter.c
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.24  2016/06/11 16:50:07  Emile
+// - I2C_start() performance improved, one-wire duration from 22 -> 6 msec.
+// - Network communication now works using DHCP
+//
 // Revision 1.23  2016/05/22 12:14:58  Emile
 // - Baud-rate to 38400 Baud.
 // - Temperature error value now set to '-99.99'.
@@ -613,12 +617,14 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 	             break;
 
 	   case 'p': // Pump
-				 if (num > 1) rval = ERR_NUM;
+				 if (num > 3) rval = ERR_NUM;
 				 else 
 				 {
 					 portb = mcp230xx_read(GPIOB);
-					 if (num == 0) portb &= ~PUMP_230V;
-					 else          portb |=  PUMP_230V;
+					 if (num & 0x01) portb |=  PUMP_230V;  // Main Brew-Pump
+					 else            portb &= ~PUMP_230V;
+					 if (num & 0x02) portb |=  PUMP2_230V; // Pump 2 for HLT heat-exchanger
+					 else            portb &= ~PUMP2_230V;
 					 mcp230xx_write(GPIOB, portb);
 				 } // else
 	             break;

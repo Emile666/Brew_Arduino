@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.28  2016/06/11 16:50:07  Emile
+// - I2C_start() performance improved, one-wire duration from 22 -> 6 msec.
+// - Network communication now works using DHCP
+//
 // Revision 1.28  2016/05/22 12:14:58  Emile
 // - Baud-rate to 38400 Baud.
 // - Temperature error value now set to '-99.99'.
@@ -135,7 +139,7 @@
 extern char rs232_inbuf[];
 
 // Global variables
-uint8_t      localIP[4]     = {192,168,1,177};    // local IP address
+uint8_t      localIP[4]     = {192,168,192,177};  // local IP address
 unsigned int localPort      = 8888;               // local port to listen on 	
 const char  *ebrew_revision = "$Revision$"; // ebrew CVS revision number
 uint8_t      system_mode    = GAS_MODULATING;     // Default to Modulating Gas-valve
