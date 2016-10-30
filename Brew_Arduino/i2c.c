@@ -6,6 +6,10 @@
   Purpose : I2C master library using hardware TWI interface
   ------------------------------------------------------------------
   $Log$
+  Revision 1.15  2016/06/11 16:50:07  Emile
+  - I2C_start() performance improved, one-wire duration from 22 -> 6 msec.
+  - Network communication now works using DHCP
+
   Revision 1.14  2016/05/15 12:24:20  Emile
   - I2C clock speed now adjustable
   - IP address and port now stored in eeprom
@@ -278,17 +282,25 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
    *err = FALSE;	
    if (dvc == THLT)
    {
-      adr  = THLT_BASE | I2C_READ; 
 	  *err = (i2c_select_channel(THLT_I2C_CH, LSPEED) != I2C_ACK);
    } // if
    else if (dvc == TMLT)
    {
-	  adr  = TMLT_BASE | I2C_READ; 
 	  *err = (i2c_select_channel(TMLT_I2C_CH, LSPEED) != I2C_ACK);
    } // else if
    else *err = TRUE;
    
-   if (!*err) *err = (i2c_start(adr) == I2C_NACK); // generate I2C start + output address to I2C bus
+   if (!*err) 
+   {
+       *err = 1;                      // assume no I2C device found 
+	   adr  = LM92_0_BASE | I2C_READ; // First possible LM92 address
+       while (*err && (adr <= LM92_3_BASE+1))
+	   {
+	      *err = (i2c_start(adr) == I2C_NACK); // generate I2C start + output address to I2C bus
+		  if (*err) adr += 2;                  // no device found, try next possible I2C address 
+	   }; // while
+   } // if
+   // adr contains address of LM92 found or *err is true (no LM92 present)     
    if (!*err)	
    {
       buffer[0] = i2c_readAck();		// Read 1st byte, request for more

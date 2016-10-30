@@ -4,6 +4,9 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.29  2016/08/07 13:46:51  Emile
+// - Pump 2 (HLT heat-exchanger pump) is now supported with Px command.
+//
 // Revision 1.28  2016/06/11 16:50:07  Emile
 // - I2C_start() performance improved, one-wire duration from 22 -> 6 msec.
 // - Network communication now works using DHCP
@@ -479,7 +482,7 @@ void thlt_task(void)
 	thlt_old_87 = thlt_temp_87; // copy previous value of thlt_temp
 	tmp         = lm92_read(THLT, &thlt_err); // returns a signed Q8.7 format
 	if (thlt_err && !thlt_ow_err)
-	{   // I2C sensor (LM92) returned an error, one-wire sensor is ok
+	{   // No I2C sensor (LM92) found, one-wire sensor is present
 		thlt_err = FALSE; // reset error
 		tmp      = thlt_ow_87;
 	} // if
@@ -518,7 +521,7 @@ void tmlt_task(void)
 	tmlt_old_87 = tmlt_temp_87; // copy previous value of tmlt_temp
 	tmp         = lm92_read(TMLT, &tmlt_err); // returns a signed Q8.7 format
 	if (tmlt_err && !tmlt_ow_err)
-	{   // I2C sensor (LM92) returned an error, one-wire sensor is ok
+	{   // No I2C sensor (LM92) found, one-wire sensor is ok
 		tmlt_err = FALSE; // reset error
 		tmp      = tmlt_ow_87;
 	} // if

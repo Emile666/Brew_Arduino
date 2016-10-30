@@ -6,6 +6,10 @@
   Purpose : This is the header-file for the I2C master interface (i2c.c)
   ------------------------------------------------------------------
   $Log$
+  Revision 1.12  2016/05/15 12:24:20  Emile
+  - I2C clock speed now adjustable
+  - IP address and port now stored in eeprom
+
   Revision 1.11  2016/01/10 16:00:24  Emile
   First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
   - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
@@ -155,10 +159,11 @@
 #define DS2482_TMLT_BASE  (0x36)
 #define DS2482_I2C_CH     (PCA9544_CH0)
 
-#define LM92_0_BASE   (0x90) /* Not used */
-#define LM92_1_BASE   (0x92) /* CH2: LM92 */
-#define LM92_2_BASE   (0x94) /* CH3: LM92 */
-#define LM92_3_BASE   (0x96) /* Not used */
+// List of possible LM92 addresses
+#define LM92_0_BASE   (0x90)
+#define LM92_1_BASE   (0x92)
+#define LM92_2_BASE   (0x94)
+#define LM92_3_BASE   (0x96)
 
 #define THLT        (0)
 #define THLT_BASE   (LM92_1_BASE)
