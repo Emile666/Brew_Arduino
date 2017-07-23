@@ -11,6 +11,7 @@
 *.map
 *.mk
 *.srec
+Make*
 
 # CVS repository
 CVS

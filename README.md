@@ -1,4 +1,4 @@
-# Home-Brewing Automation with an Arduino Nano
+# Home-Brewery Automation with an Arduino Nano
 Arduino Nano firmware for my home-brewery
 
 ![frontpanel](img/main_pcb_picture.jpg)<br>
@@ -6,13 +6,17 @@ Arduino Nano firmware for my home-brewery
 
 # Features
 The current PCB and firmware have the following features:
-- Reading a maximum of 4 temperature sensors: one each for the three brewing-kettles and one at the output of the counterflow-chiller
+- Reading a maximum of 4 temperature sensors: one each for the three brewing-kettles and one at the output of the counterflow-chiller. Both one-wire and I2C sensors are supported
 - Reading of the hardware temperature: this is to protect the power-electronics
 - Reading a maximum of 4 flowsensors: between HLT and MLT, between MLT and boil-kettle and one at the output of the counterflow-chiller
 - Control of 8 solenoid ball-valves at 24 V DC
 - Control of 4 actuators at 230 V AC: the pump, a second pump (for the HLT counterflow-chiller), the HLT gasburner and the boil-kettle gasburner
+- USB or network connection to PC
 
-More information about hardware-architecture and actual PCB-design: see my website: http://www.vandelogt.nl/uk_hardware.php
+![frontpanel](img/hw_architecture.png)<br>
+*Hardware architecture of PCB v3.30*
+
+More hardware and firmware design details: see my website: http://www.vandelogt.nl/uk_hardware.php
 
 # Software Development Environment
 Use with Atmel Studio v6 or higher.
