@@ -1,0 +1,31 @@
+# Compiled Object files
+*.o
+*.obj
+*.d
+*.hex
+
+# Generated files
+*.eep
+*.elf
+*.lss
+*.map
+*.mk
+*.srec
+
+# CVS repository
+CVS
+*.dll
+
+# Atmel Studio 
+*.atsuo
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
