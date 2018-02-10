@@ -51,6 +51,17 @@ task_struct task_list[MAX_TASKS]; // struct with all tasks
 uint8_t     max_tasks = 0;
 
 /*-----------------------------------------------------------------------------
+  Purpose  : Initialization function for scheduler. Should be called before 
+	           calling any other scheduler function.
+  Variables: task_list[] structure
+  Returns  : -
+  ---------------------------------------------------------------------------*/
+void scheduler_init(void)
+{
+	  memset(task_list,0x00,sizeof(task_list)); // clear task_list array
+} // scheduler_init()
+
+/*-----------------------------------------------------------------------------
   Purpose  : Run-time function for scheduler. Should be called from within
              an ISR. This function goes through the task-list and decrements
              eacht task counter. On time-out, the ready flag is set.
@@ -61,7 +72,7 @@ void scheduler_isr(void)
 {
 	uint8_t index = 0; // index in task_list struct
 
-	while(task_list[index].pFunction)
+	while((index < MAX_TASKS) && task_list[index].pFunction)
 	{
 		//First go through the initial delay
 		if(task_list[index].Delay > 0)
@@ -95,7 +106,7 @@ void dispatch_tasks(void)
 	uint32_t time2;
 
 	//go through the active tasks
-	while(task_list[index].pFunction)
+	while ((index < MAX_TASKS) && task_list[index].pFunction)
 	{
 		if((task_list[index].Status & (TASK_READY | TASK_ENABLED)) == (TASK_READY | TASK_ENABLED))
 		{
@@ -135,10 +146,9 @@ uint8_t add_task(void (*task_ptr), char *Name, uint16_t delay, uint16_t period)
 		return ERR_MAX_TASKS;
 		
 	//go through the active tasks
-	if(task_list[index].Period != 0)
-	{
-		while(task_list[++index].Period != 0) ;
-	} // if
+	while ((index < MAX_TASKS) && task_list[index].Period) index++;
+	if (index >= MAX_TASKS)     
+	    return ERR_MAX_TASKS;
 
 	if(task_list[index].Period == 0)
 	{

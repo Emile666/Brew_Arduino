@@ -4,6 +4,14 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.31  2018/02/10 16:24:12  Emile
+// - LocalPort and LocalIP no longer stored in EEPROM: LocalIP is init by DHCP
+//   and LocalPort should always be set to 8888.
+//
+// Revision 1.30  2016/10/30 11:01:21  Emile
+// - More relaxed I2C addressing per channel. Any LM92 address is now accepted
+//   for HLT and MLT temperature sensor.
+//
 // Revision 1.29  2016/08/07 13:46:51  Emile
 // - Pump 2 (HLT heat-exchanger pump) is now supported with Px command.
 //
@@ -142,11 +150,11 @@
 extern char rs232_inbuf[];
 
 // Global variables
-uint8_t      localIP[4]     = {192,168,192,177};  // local IP address
-unsigned int localPort      = 8888;               // local port to listen on 	
-const char  *ebrew_revision = "$Revision$"; // ebrew CVS revision number
-uint8_t      system_mode    = GAS_MODULATING;     // Default to Modulating Gas-valve
-bool         ethernet_WIZ550i = false;			  // Default to No WIZ550i present
+uint8_t      localIP[4]     = {0,0,0,0};      // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
+unsigned int localPort      = 8888;           // local port to listen on 	
+const char  *ebrew_revision = "$Revision: 1.31 $";   // ebrew CVS revision number
+uint8_t      system_mode    = GAS_MODULATING; // Default to Modulating Gas-valve
+bool         ethernet_WIZ550i = false;		  // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
 extern uint8_t  remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed 
@@ -827,7 +835,7 @@ int main(void)
 	// Initialize Serial Communication, See usart.h for BAUD
 	// F_CPU should be a Project Define (-DF_CPU=(xxxL)
 	usart_init(MYUBRR); // Initializes the serial communication
-	
+
 	// Initialize all the tasks for the E-Brew system
 	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.
 	add_task(lm35_task ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
@@ -839,7 +847,8 @@ int main(void)
 	add_task(tmlt_task ,"tmlt_task" ,620, 2000); // Process Temperature from TMLT sensor (I2C and/or OW)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
-	print_ebrew_revision(s);    // print revision number    
+	//print_ebrew_revision(s);    // print revision number    
+	//xputs(s);
 	if (mcp23017_init())        // Initialize IO-expander for valves (port A output, port B input)
 	{
 		xputs("mcp23017_init() error\n");
