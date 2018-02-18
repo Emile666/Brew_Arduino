@@ -60,8 +60,8 @@
 #define DHCP_CHECK_REBIND_FAIL  (3)
 #define DHCP_CHECK_REBIND_OK    (4)
 
-#define DHCP_TIMEOUT 	      (6000)
-#define DHCP_RESPONSE_TIMEOUT (4000)
+#define DHCP_TIMEOUT 	      (12000)
+#define DHCP_RESPONSE_TIMEOUT (8000)
 
 enum
 {

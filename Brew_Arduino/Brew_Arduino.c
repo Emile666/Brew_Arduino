@@ -4,6 +4,10 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.32  2018/02/18 15:55:00  Emile
+// - Better debugging info for ETH start, DHCP timeouts larger, E2 command added.
+// - Bug-fix Ethernet_begin(): SHAR register should be used for reading MAC address.
+//
 // Revision 1.31  2018/02/10 16:24:12  Emile
 // - LocalPort and LocalIP no longer stored in EEPROM: LocalIP is init by DHCP
 //   and LocalPort should always be set to 8888.
@@ -150,11 +154,11 @@
 extern char rs232_inbuf[];
 
 // Global variables
-uint8_t      localIP[4]     = {0,0,0,0};      // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
-unsigned int localPort      = 8888;           // local port to listen on 	
-const char  *ebrew_revision = "$Revision: 1.31 $";   // ebrew CVS revision number
-uint8_t      system_mode    = GAS_MODULATING; // Default to Modulating Gas-valve
-bool         ethernet_WIZ550i = false;		  // Default to No WIZ550i present
+uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
+unsigned int local_port;                   // local port number read back from wiz550i module
+const char  *ebrew_revision   = "$Revision: 1.32 $";   // ebrew CVS revision number
+uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
+bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
 extern uint8_t  remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed 
@@ -750,10 +754,19 @@ void print_IP_address(uint8_t *ip)
 	} // for
 } // print_IP_address()
 
-void init_WIZ550IO_module(void)
+
+/*-----------------------------------------------------------------------
+  Purpose  : This function inits the WIZ550i Ethernet module by
+             calling w5500_init() and spi_init(). If a valid MAC address
+			 is detected, then dhcp_begin() is started.
+  Variables: The IP-address to print
+  Returns  : 1: success, 0: WIZ550IO not present
+  -----------------------------------------------------------------------*/
+uint8_t init_WIZ550IO_module(void)
 {
-	char     s[30];     // Needed for xputs() and sprintf()
-	uint8_t  x,bufr[8]; // Needed for w5500_read_common_register()
+	char     s[30];   // Needed for xputs() and sprintf()
+	uint8_t  bufr[8]; // Needed for w5500_read_common_register()
+	uint8_t  ret,x;
 	uint16_t y;
 	
 	//---------------------------------------------------------------
@@ -765,9 +778,16 @@ void init_WIZ550IO_module(void)
 	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
 	delay_msec(150);           // Giver W5500 time to configure itself
 
-	Ethernet_begin();          // includes w5500_init(), spi_init() and dhcp_begin()
-	x = udp_begin(localPort);  // init. UDP protocol
-
+	ret = Ethernet_begin();    // includes w5500_init(), spi_init() & dhcp_begin()
+	if (ret == 0)              // Error, no WIZ550IO module found
+	{
+		ethernet_WIZ550i = false;  // No ETH mode, switch back to USB
+	    write_eeprom_parameters(); // save value in eeprom
+		xputs("switching back to USB mode\n");
+		return 0;
+	} // if	
+	
+	x = udp_begin(EBREW_PORT_NR);           // init. UDP protocol
 	w5500_read_common_register(SHAR, bufr); // get MAC address
 	sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",bufr[0],bufr[1],bufr[2],bufr[3],bufr[4],bufr[5]);
 	xputs(s);
@@ -776,19 +796,21 @@ void init_WIZ550IO_module(void)
 	sprintf(s,"udp_begin():%d, sock=%d\n",x,_sock);   xputs(s);
 	x = w5500_read_socket_register(_sock, Sn_MR, bufr);
 	sprintf(s,"Sn_MR=%d, ",x);                        xputs(s);
-	y = w5500_read_socket_register(_sock, Sn_PORT, bufr);
-	sprintf(s,"Sn_PORT=%d, ",y);					  xputs(s);
+	local_port = w5500_read_socket_register(_sock, Sn_PORT, bufr);
+	sprintf(s,"Sn_PORT=%d, ",local_port);			  xputs(s);
 	y = w5500_getTXFreeSize(_sock);
 	sprintf(s,"Sn_TXfree=%d, ",y);					  xputs(s);
 	y = w5500_getRXReceivedSize(_sock);
 	sprintf(s,"Sn_RXrecv=%d\n",y);					  xputs(s);
 	w5500_read_common_register(SIPR, bufr);
 	xputs("Local IP address  :"); print_IP_address(bufr);
+	for (x = 0; x < 4; x++) local_ip[x] = bufr[x]; // copy IP address
 	w5500_read_common_register(GAR, bufr);
 	xputs("\nGateway IP address:"); print_IP_address(bufr);
 	w5500_read_common_register(SUBR, bufr);
 	xputs("\nSubnet Mask       :"); print_IP_address(bufr);	
 	xputs("\n");
+	return 1; // success
 } // init_WIZ550IO_module()
 
 //int freeRam (void) 
@@ -847,15 +869,20 @@ int main(void)
 	add_task(tmlt_task ,"tmlt_task" ,620, 2000); // Process Temperature from TMLT sensor (I2C and/or OW)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
-	//print_ebrew_revision(s);    // print revision number    
-	//xputs(s);
 	if (mcp23017_init())        // Initialize IO-expander for valves (port A output, port B input)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if
-	if (ethernet_WIZ550i)      // Initialize Ethernet adapter
+	if (ethernet_WIZ550i)        // Initialize Ethernet adapter
 	{
+		print_ebrew_revision(s); // print revision number
+		xputs(s);				 // Output to COM-port for debugging
+		xputs("init_wiz550io_module()\n");
 		init_WIZ550IO_module();
+		xputs("starting main()   :");
+		print_IP_address(local_ip);
+		sprintf(s,":%d\n",local_port); // add local port as read back from wiz550io module
+		xputs(s);
 	} // if
 		
     while(1)

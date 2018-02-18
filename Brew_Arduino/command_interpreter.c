@@ -124,7 +124,6 @@
 
 extern uint8_t      localIP[4];  // local IP address
 extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed
-extern unsigned int localPort;   // local port to listen on 	
 extern uint8_t      ROM_NO[];    // One-wire hex-address
 extern uint8_t      crc8;
 
@@ -521,7 +520,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 	   case 'a': // Read Temperatures and Flows
 				 if (rs232_udp == ETHERNET_UDP) 
 				 {
-					 udp_beginPacketIP(remoteIP, localPort); // send response back
+					 udp_beginPacketIP(remoteIP, EBREW_PORT_NR); // send response back
 				 } // if				 
 				 switch (num)
 				 {
@@ -567,19 +566,11 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				   write_eeprom_parameters(); // save value in eeprom
 				   if (ethernet_WIZ550i) init_WIZ550IO_module(); // this hangs the system if no WIZ550io is present!!!
 			   }
-			   else if (num == 2) 
-			   {   // IP address, e.g. "192.168.1.177:8888"
-				   s1 = strtok(&s[3],"."); localIP[0] = atoi(s1);
-				   for (i = 1; i < 4; i++) 
-				   {
-					   s1 = strtok(NULL ,".:"); 
-					   localIP[i] = atoi(s1);
-				   } // for i				
-				   s1 = strtok(NULL,":");
-				   localPort = atoi(s1);   
-				   write_eeprom_parameters(); // save IP address and Port in eeprom
-				   sprintf(s2,"IP:%d.%d.%d.%d:%d\n",localIP[0],localIP[1],localIP[2],localIP[3],localPort);
-				   xputs(s2);
+			   else if (num ==2)
+			   {
+				   if (ethernet_WIZ550i)
+				        xputs("ETH mode (E1)\n");
+				   else xputs("USB mode (E0)\n");
 			   } // else if
 			   else rval = ERR_NUM;
 			   break;
@@ -632,7 +623,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 	   case 's': // System commands
 				 if (rs232_udp == ETHERNET_UDP)
 				 {
-					 udp_beginPacketIP(remoteIP, localPort); // send response back
+					 udp_beginPacketIP(remoteIP, EBREW_PORT_NR); // send response back
 				 } // if
 	             rval = 67 + num;
 				 switch (num)

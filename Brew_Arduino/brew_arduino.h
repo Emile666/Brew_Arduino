@@ -92,11 +92,13 @@
 #include "scheduler.h"
 #include "eep.h"
 
-// Uncomment the next line if a WIZ550io module is present
-//#define WIZ550io_PRESENT
 
-#define RS232_USB    (true)
-#define ETHERNET_UDP (false)
+//---------------------------------
+// Defines for WIZ550IO ETH module
+//---------------------------------
+#define RS232_USB     (true)
+#define ETHERNET_UDP  (false)
+#define EBREW_PORT_NR (8888)
 
 //-----------------------------
 // PORTB defines
@@ -148,7 +150,7 @@
 #define FLOW_PER_L     (330)
 #define FLOW_ROUND_OFF (FLOW_PER_L>>1)
 
-void print_ebrew_revision(char *ver);
-void init_WIZ550IO_module(void);
+void    print_ebrew_revision(char *ver);
+uint8_t init_WIZ550IO_module(void);
 
 #endif /* _BREW_ARDUINO_H_ */
