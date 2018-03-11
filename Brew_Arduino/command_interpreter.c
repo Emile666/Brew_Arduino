@@ -122,7 +122,6 @@
 #include "one_wire.h"
 #include "eep.h"
 
-extern uint8_t      localIP[4];  // local IP address
 extern uint8_t      remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed
 extern uint8_t      ROM_NO[];    // One-wire hex-address
 extern uint8_t      crc8;
@@ -495,6 +494,7 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
    - N0           : System-Mode: 0=Modulating, 1=Non-Modulating, 2=Electrical
      N1..N6       : Parameter settings
    - P0 / P1      : set Pump OFF / ON
+   - R0           : Reset all flows
    - S0           : Ebrew hardware revision number
 	 S1			  : List value of parameters that can be set with Nx command
 	 S2           : List all connected I2C devices  
@@ -620,6 +620,14 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 } // else
 	             break;
 
+	   case 'r': // Reset flows
+				 if (num > 0) rval = ERR_NUM;
+				 else
+				 {
+					flow_hlt_mlt = flow_mlt_boil = flow_cfc_out = flow4 = 0L;
+				 } // else
+				 break;
+				 				 
 	   case 's': // System commands
 				 if (rs232_udp == ETHERNET_UDP)
 				 {

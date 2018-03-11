@@ -4,9 +4,16 @@
 // File   : $Id$
 //-----------------------------------------------------------------------------
 // $Log$
+// Revision 1.33  2018/03/11 15:40:00  Emile
+// - Bugfix: for some reason, the MCP23017_init() routine needs to be called twice.
+//           With Ethernet operations, there's no reset anymore from the USB, and
+//           setting IO on the MCP23017 did not work. Corrected by calling the
+//           MCP23017_init() twice. Not nice, but it works.
+//
 // Revision 1.32  2018/02/18 15:55:00  Emile
 // - Better debugging info for ETH start, DHCP timeouts larger, E2 command added.
 // - Bug-fix Ethernet_begin(): SHAR register should be used for reading MAC address.
+// - R0 (reset flows) command added
 //
 // Revision 1.31  2018/02/10 16:24:12  Emile
 // - LocalPort and LocalIP no longer stored in EEPROM: LocalIP is init by DHCP
@@ -156,7 +163,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.32 $";   // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.33 $";   // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -873,6 +880,8 @@ int main(void)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if
+	mcp23017_init();			 // Needs to be called twice (hardware bug?)
+	
 	if (ethernet_WIZ550i)        // Initialize Ethernet adapter
 	{
 		print_ebrew_revision(s); // print revision number
