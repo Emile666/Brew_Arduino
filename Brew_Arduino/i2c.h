@@ -1,53 +1,9 @@
 /*==================================================================
-  File Name    : $Id$
+  File Name    : i2c.h
   Function name: -
   Author       : Peter Fleury <pfleury@gmx.ch> http://jump.to/fleury
   ------------------------------------------------------------------
   Purpose : This is the header-file for the I2C master interface (i2c.c)
-  ------------------------------------------------------------------
-  $Log$
-  Revision 1.12  2016/05/15 12:24:20  Emile
-  - I2C clock speed now adjustable
-  - IP address and port now stored in eeprom
-
-  Revision 1.11  2016/01/10 16:00:24  Emile
-  First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
-  - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
-  - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
-  - Wxxx command is now Hxxx command, new Bxxx command added.
-  - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
-  - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
-  - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
-  - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
-  - set_parameter(): parameters 7-12 removed.
-
-  Revision 1.10  2015/08/06 14:41:16  Emile
-  - Adapted for MCP23008 instead of MCP23017.
-
-  Revision 1.9  2015/06/28 12:27:35  Emile
-  - Moving_average filters now work with Q8.7 instead of Q8.4 format
-  - One-wire functions now work with DS18B20
-  - Separate ow_task() added for one-wire communication
-  - I2C clock made adjustable
-
-  Revision 1.8  2015/06/05 13:46:33  Emile
-  - Support for one-wire masters (DS2482) added (not tested yet)
-
-  Revision 1.7  2015/05/09 14:37:37  Emile
-  - I2C Channel & HW-address update for MCP23017 to reflect changes in HW PCB V3.01
-
-  Revision 1.6  2014/11/30 20:44:45  Emile
-  - Vxxx command added to write valve output bits
-  - mcp23017 (16 bit I2C IO-expander) routines + defines added
-
-  Revision 1.5  2014/10/26 12:44:47  Emile
-  - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
-
-  Revision 1.4  2014/05/03 11:27:44  Emile
-  - Ethernet support added for W550io module
-  - No response for L, N, P, W commands anymore
-  - All source files now have headers
-
   ================================================================== */ 
 #ifndef _I2C_H
 #define _I2C_H   1
@@ -85,50 +41,32 @@
 #define HSPEED (1)
 
 //-------------------------------------------------------------------------
-// MCP23008 8-BIT  IO Expander
-// MCP23017 16-BIT IO Expander: Register names when BANK == 1
+// MCP23017 16-BIT IO Expander: 
+// Register names when IOCON.BANK == 0 (default situation at power-up)
 //-------------------------------------------------------------------------
-// Bank addressing, seq. operation disabled, slew rate enabled
-// HW addressing enabled
-#define MCP23017_INIT (0xAA)
-#define MCP23008_INIT (0x2A)
+#define MCP23017_INIT (0x00) /* No bank addressing, seq.operation enabled */
 
-// Defines for the MCP23008
-#define IODIR   (0x00)
-#define IPOL    (0x01)
-#define GPINTEN (0x02)
-#define DEFVAL  (0x03)
-#define INTCON  (0x04)
-#define IOCON   (0x05)
-#define GPPU    (0x06)
-#define INTF    (0x07)
-#define INTCAP  (0x08)
-#define GPIO    (0x09)
-#define OLAT    (0x0A)
-
-// Defines for the MCP23017
-#define IODIRA   (IODIR)
-#define IPOLA    (IPOL)
-#define GPINTENA (GPINTEN)
-#define DEFVALA  (DEFVAL)
-#define INTCONA  (INTCON)
-#define GPPUA    (GPPU)
-#define INTFA    (INTF)
-#define INTCAPA  (INTCAP)
-#define GPIOA    (GPIO)
-#define OLATA    (OLAT)
-
-#define IODIRB   (IODIRA   + 0x10)
-#define IPOLB    (IPOLA    + 0x10)
-#define GPINTENB (GPINTENA + 0x10)
-#define DEFVALB  (DEFVALA  + 0x10)
-#define INTCONB  (INTCONA  + 0x10)
-#define GPPUB    (GPPUA    + 0x10)
-#define INTFB    (INTFA    + 0x10)
-#define INTCAPB  (INTCAPA  + 0x10)
-#define GPIOB    (GPIOA    + 0x10)
-#define OLATB    (OLATA    + 0x10)
-
+#define IODIRA   (0x00) /* I/O direction register, 1=input, 0=output */
+#define IODIRB   (0x01)
+#define IPOLA    (0x02) /* Input polarity port register, 1= opposite state */
+#define IPOLB    (0x03)
+#define GPINTENA (0x04) /* Interrupt-on-change register */
+#define GPINTENB (0x05)
+#define DEFVALA  (0x06) /* Default compare register for interrupt-on-change */
+#define DEFVALB  (0x07)
+#define INTCONA  (0x08) /* Interrupt control register */
+#define INTCONB  (0x09)
+#define IOCON    (0x0A) /* Configuration register */
+#define GPPUA    (0x0C) /* Pull-up resistor configuration register */
+#define GPPUB    (0x0D)
+#define INTFA    (0x0E) /* Interrupt flag register */
+#define INTFB    (0x0F)
+#define INTCAPA  (0x10) /* Interrupt capture register */
+#define INTCAPB  (0x11)
+#define GPIOA    (0x12) /* Port register */
+#define GPIOB    (0x13)
+#define OLATA    (0x14) /* Output latch register */
+#define OLATB    (0x15)
 
 //-------------------------------------------------------------------------
 // PCA9544 I2C Multiplexer
@@ -150,8 +88,8 @@
 
 /** Define all I2C Hardware addresses **/
 /** NOTE: 0x44 on older PCBs, 0x40 as of HW PCB V3.01 **/
-#define MCP230XX_BASE   (0x40) /* CH0: IO-Expander for Valve Outputs */
-#define MCP230XX_I2C_CH (PCA9544_CH1)
+#define MCP23017_BASE   (0x40) /* CH0: IO-Expander for Valve Outputs */
+#define MCP23017_I2C_CH (PCA9544_CH1)
 
 #define DS2482_THLT_BASE  (0x30)
 #define DS2482_TBOIL_BASE (0x32)
@@ -231,10 +169,9 @@ enum i2c_acks i2c_select_channel(uint8_t ch, uint8_t speed); // Set PCA9544 chan
 
 int16_t       lm92_read(uint8_t dvc, uint8_t *err);
 
-uint8_t       mcp23008_init(void);
 uint8_t       mcp23017_init(void);
-uint8_t		  mcp230xx_read(uint8_t reg);
-uint8_t       mcp230xx_write(uint8_t reg, uint8_t data);
+uint8_t		  mcp23017_read(uint8_t reg);
+uint8_t       mcp23017_write(uint8_t reg, uint8_t data);
 
 int8_t        ds2482_reset(uint8_t addr);
 int8_t        ds2482_write_config(uint8_t addr);

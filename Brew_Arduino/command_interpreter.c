@@ -1,117 +1,8 @@
-//-----------------------------------------------------------------------------
-// Created: 22-4-2013 07:26:24
-// Author : Emile
-// File   : command_interpreter.c
-//-----------------------------------------------------------------------------
-// $Log$
-// Revision 1.24  2016/06/11 16:50:07  Emile
-// - I2C_start() performance improved, one-wire duration from 22 -> 6 msec.
-// - Network communication now works using DHCP
-//
-// Revision 1.23  2016/05/22 12:14:58  Emile
-// - Baud-rate to 38400 Baud.
-// - Temperature error value now set to '-99.99'.
-//
-// Revision 1.22  2016/05/15 12:24:20  Emile
-// - I2C clock speed now adjustable
-// - IP address and port now stored in eeprom
-//
-// Revision 1.21  2016/04/17 12:55:32  Emile
-// - Version after Integration Testing. Works with ebrew r1.81.
-// - Temps (A0) and Flows (A9) now combined instead of separate readings
-//
-// Revision 1.20  2016/04/16 11:22:58  Emile
-// - One temperature slope parameter for all temps. Now fixed value (2 degrees/second).
-// - Temp. Offset parameters removed.
-// - All parameters > 12 removed from parameter list. Now only pars 1-6 left.
-// - Tasks for CFC and Boil Temperature added.
-//
-// Revision 1.19  2016/01/10 16:00:24  Emile
-// First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
-// - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
-// - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
-// - Wxxx command is now Hxxx command, new Bxxx command added.
-// - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
-// - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
-// - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
-// - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
-// - set_parameter(): parameters 7-12 removed.
-//
-// Revision 1.18  2015/08/06 14:41:16  Emile
-// - Adapted for MCP23008 instead of MCP23017.
-//
-// Revision 1.17  2015/07/01 21:03:46  Emile
-// - Bug-fix in scheduler time-measurement. Now reads proper time in msec
-// - Usart comm. now IRQ driven, so that all receiving commands are handled
-// - DS18B20 reads only 2 bytes (instead of 9). Total time taken is now 28 msec.
-//   This was 60 msec. and caused multiple reads at PC side.
-//
-// Revision 1.16  2015/06/28 12:27:35  Emile
-// - Moving_average filters now work with Q8.7 instead of Q8.4 format
-// - One-wire functions now work with DS18B20
-// - Separate ow_task() added for one-wire communication
-// - I2C clock made adjustable
-//
-// Revision 1.15  2015/05/31 10:28:57  Emile
-// - Bugfix: Flowsensor reading counted rising and falling edges.
-// - Bugfix: Only valve V8 is written to at init (instead of all valves).
-//
-// Revision 1.14  2014/11/30 20:44:45  Emile
-// - Vxxx command added to write valve output bits
-// - mcp23017 (16 bit I2C IO-expander) routines + defines added
-//
-// Revision 1.13  2014/11/09 15:38:34  Emile
-// - PUMP_LED removed from PD2, PUMP_230V has same function
-// - Interface for 2nd waterflow sensor added to PD2
-// - Command A6 (read waterflow in E-2 L) added
-// - FLOW_PER_L changed to 330 (only rising edge is counted)
-//
-// Revision 1.12  2014/10/26 12:44:47  Emile
-// - A3 (Thlt) and A4 (Tmlt) commands now return '99.99' in case of I2C HW error.
-//
-// Revision 1.11  2014/06/15 14:52:20  Emile
-// - Commands E0 and E1 (Disable/Enable Ethernet module) added
-// - Interface for waterflow sensor added to PC3/ADC3
-// - Command A5 (read waterflow in E-2 L) added
-//
-// Revision 1.10  2014/06/01 13:46:02  Emile
-// Bug-fix: do not call udp routines when in COM port mode!
-//
-// Revision 1.9  2014/05/03 11:27:44  Emile
-// - Ethernet support added for W550io module
-// - No response for L, N, P, W commands anymore
-// - All source files now have headers
-//
-// Revision 1.8  2013/07/24 13:46:40  Emile
-// - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
-// - Version ready for Integration Testing with PC program!
-//
-// Revision 1.7  2013/07/23 19:33:18  Emile
-// - Bug-fix slope-limiter function. Tested on all measurements.
-//
-// Revision 1.6  2013/07/21 13:10:43  Emile
-// - Reading & Writing of 17 parameters now fully works with set_parameter()
-// - VHLT and VMLT tasks added
-// - Scheduler: actual & max. times now printed in msec. instead of usec.
-// - THLT and TMLT now in E-2 Celsius for PC program
-// - All lm92 test routines removed, only one lm92_read() remaining
-//
-// Revision 1.5  2013/07/20 14:51:59  Emile
-// - LM35, THLT and TMLT tasks are now working
-// - Max. duration added to scheduler
-// - slope_limiter & lm92_read() now work with uint16_t instead of float
-//
-// Revision 1.4  2013/07/19 10:51:02  Emile
-// - I2C frequency 50 50 kHz to get 2nd LM92 working
-// - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
-// - Command S3 added, list_all_tasks. To-Do: get timing-measurement working
-// - Scheduler added with 3 tasks: lm35, led_blink and pwm_2_time
-//
-// Revision 1.3  2013/06/23 09:08:51  Emile
-// - Headers added to files
-//
-//
-//-----------------------------------------------------------------------------
+/*==================================================================
+   Created: 22-4-2013 07:26:24
+   Author : Emile
+   File   : command_interpreter.c
+  ================================================================== */
 #include <string.h>
 #include <ctype.h>
 #include <util/atomic.h>
@@ -162,6 +53,9 @@ extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and
 extern unsigned long flow_mlt_boil;    // Count from flow-sensor between MLT and boil-kettle
 extern unsigned long flow_cfc_out;     // Count from flow-sensor at output of CFC
 extern unsigned long flow4;            // Count from FLOW4 (future use)
+
+extern bool    bz_on;      // true = buzzer-on
+extern uint8_t bz_rpt_max; // number of buzzer repeats
 
 char    rs232_inbuf[USART_BUFLEN];     // buffer for RS232 commands
 uint8_t rs232_ptr = 0;                 // index in RS232 buffer
@@ -253,8 +147,7 @@ uint8_t ethernet_command_handler(char *s)
 {
   uint8_t rval = NO_ERR;
   char    *s1;
-  char    s2[20];
-  uint8_t i, cnt = 1;
+  uint8_t i;
   
   s1 = strtok(s,"\n"); // get the first command
   while (s1 != NULL)
@@ -347,7 +240,7 @@ void find_OW_device(uint8_t i2c_addr)
   ---------------------------------------------------------------------------*/
 void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val)
 {
-	uint8_t portb = mcp230xx_read(GPIOB);
+	uint8_t portb = mcp23017_read(GPIOB);
 	uint8_t mod_mask, nmod_mask;
 	
 	if (pwm_ch == PWMB)
@@ -381,7 +274,7 @@ void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val)
 								 // else do nothing (hysteresis)
 							 } // else
 							 pwm_write(pwm_ch, pwm_val);  // write PWM value to Timer register
-							 mcp230xx_write(OLATB,portb); // write updated bit-values back to MCP23017 PORTB
+							 mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
 		                     break;
 							 
 		case GAS_NON_MODULATING: // Non-Modulating gas-burner
@@ -401,7 +294,7 @@ void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val)
 								 } // if
 								 // else do nothing (hysteresis)
 							 } // else
-							 mcp230xx_write(OLATB,portb); // write updated bit-values back to MCP23017 PORTB
+							 mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
 		                     break;
 
 		case ELECTRICAL_HEATING: // Electrical heating
@@ -501,6 +394,7 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
 	 S3           : List all tasks
 	 S4           : List One-Wire devices
    - V0...V255    : Output bits for valves V1 until V8
+   - X0...X8      : Sound buzzer x times
  
   Variables: 
           s: the string that contains the command from RS232 serial port 0
@@ -510,10 +404,9 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
 uint8_t execute_single_command(char *s, bool rs232_udp)
 {
    uint8_t  num  = atoi(&s[1]); // convert number in command (until space is found)
-   uint8_t  rval = NO_ERR, err, portb, i;
+   uint8_t  rval = NO_ERR, err, portb;
    uint16_t temp;
    char     s2[40]; // Used for printing to RS232 port
-   char     *s1;
    
    switch (s[0])
    {
@@ -611,12 +504,12 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 if (num > 3) rval = ERR_NUM;
 				 else 
 				 {
-					 portb = mcp230xx_read(GPIOB);
+					 portb = mcp23017_read(GPIOB);
 					 if (num & 0x01) portb |=  PUMP_230V;  // Main Brew-Pump
 					 else            portb &= ~PUMP_230V;
 					 if (num & 0x02) portb |=  PUMP2_230V; // Pump 2 for HLT heat-exchanger
 					 else            portb &= ~PUMP2_230V;
-					 mcp230xx_write(GPIOB, portb);
+					 mcp23017_write(GPIOB, portb);
 				 } // else
 	             break;
 
@@ -674,9 +567,18 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 
 	   case 'v': // Output Valve On-Off signals to MCP23017 16-bit IO
 			   rval = 78;
-			   mcp230xx_write(OLATA,num); // write valve bits to IO-expander PORT
+			   mcp23017_write(GPIOA,num); // write valve bits to IO-expander PORTA
 			   break;
 
+	   case 'x': // Sound Buzzer
+	           if (num > 8) rval = ERR_NUM;
+			   else
+			   {
+				  bz_rpt_max = num;
+				  bz_on      = true;
+			   } // else				 
+			   break;
+				
 	   default: rval = ERR_CMD;
 				sprintf(s2,"ERR.CMD[%s]\n",s);
 				xputs(s2);

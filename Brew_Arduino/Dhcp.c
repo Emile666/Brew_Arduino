@@ -1,12 +1,9 @@
 /*==================================================================
-  File Name    : $Id$
-  Function name: see Dhcp.h
+  File Name    : Dhcp.c
   Author       : Jordan Terrell - blog.jordanterrell.com
 				 C-version: E v.d. Logt
   ------------------------------------------------------------------
   Purpose : DHCP Library v0.3 - April 25, 2009
-  ------------------------------------------------------------------
-  $Log$
   ================================================================== */ 
 #include "w5500.h"
 #include <string.h>

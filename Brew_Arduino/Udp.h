@@ -1,14 +1,10 @@
 /*==================================================================
-  File Name    : $Id$
-  Function name: -
+  File Name    : Udp.h
   Author       : bjoern@cs.stanford.edu 12/30/2008
 				 C-version: E v.d. Logt
   ------------------------------------------------------------------
   Purpose : This is the header file for the Udp routines
   ------------------------------------------------------------------
-  $Log$
-  ================================================================== */ 
-/*
  *  Udp.cpp: Library to send/receive UDP packets with the Arduino ethernet shield.
  *  This version only offers minimal wrapping of socket.c/socket.h
  *  Drop Udp.h/.cpp into the Ethernet library directory at hardware/libraries/Ethernet/ 

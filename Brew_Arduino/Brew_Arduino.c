@@ -1,9 +1,13 @@
 //-----------------------------------------------------------------------------
 // Created: 20-4-2013 22:32:11
 // Author : Emile
-// File   : $Id$
+// File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
-// $Log$
+// Revision 1.34  2018/10/25 11:12:00  Emile
+// - Bugfix MCP23017 addressing, IOCON definition was for BANK==1. Now all
+//          definitions are for BANK==0, which is the default at power-up.
+// - Buzzer alarm added to PD3 + Xx command added
+//
 // Revision 1.33  2018/03/11 15:40:00  Emile
 // - Bugfix: for some reason, the MCP23017_init() routine needs to be called twice.
 //           With Ethernet operations, there's no reset anymore from the USB, and
@@ -163,7 +167,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.33 $";   // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.34 $";   // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -247,6 +251,63 @@ unsigned long    flow_cfc_out  = 0UL; // Count from flow-sensor at output of CFC
 unsigned long    flow4         = 0UL; // Count from FLOW4 (future use)
 volatile uint8_t old_flows     = 0x0F; // default is high because of the pull-up
 
+bool     bz_on = false;
+bool     bz_dbl;
+uint8_t  bz_std = BZ_OFF;
+uint8_t  bz_rpt;
+uint8_t  bz_rpt_max;
+uint16_t bz_tmr;
+
+void buzzer(void)
+{
+	switch (bz_std)
+	{
+		case BZ_OFF:   PORTD &= ~BUZZER;
+					   if (bz_on) 
+					   {
+						   bz_tmr = 0;
+						   bz_rpt = 0;
+						   bz_dbl = false;
+						   bz_std = BZ_ON;
+					   } // if
+					   break;
+		case BZ_ON:    PORTD |= BUZZER;
+					   if (++bz_tmr > 50) 
+					   {
+						   bz_tmr = 0;
+						   if (!bz_dbl)
+						        bz_std = BZ_SHORT;
+						   else bz_std = BZ_BURST;
+					   } // if
+					   else bz_std = BZ_ON2;					 
+					   break;
+		case BZ_ON2:   PORTD &= ~BUZZER;
+					   bz_std = BZ_ON;
+					   break;
+		case BZ_SHORT: PORTD &= ~BUZZER;
+					   bz_dbl = true;
+					   if (++bz_tmr >= 50)
+					   {
+						   bz_tmr = 0;
+						   bz_std = BZ_ON;
+					   } // if
+					   break;		
+		case BZ_BURST: PORTD &= ~BUZZER;
+					   if (++bz_tmr > 500)
+					   {
+						 bz_tmr = 0;  
+						 bz_dbl = false;
+						 if (++bz_rpt >= bz_rpt_max) 
+						 {
+							  bz_on  = false;
+							  bz_std = BZ_OFF;
+						 } // if
+						 else bz_std = BZ_ON;
+					   } // if
+					   break;					   						 
+	} // switch
+} // buzzer()
+
 /*------------------------------------------------------------------
   Purpose  : This is the Timer-Interrupt routine which runs every msec. 
              (f=1 kHz). It is used by the task-scheduler.
@@ -256,6 +317,7 @@ volatile uint8_t old_flows     = 0x0F; // default is high because of the pull-up
 ISR(TIMER2_COMPA_vect)
 {
 	t2_millis++;     // update millisecond counter
+	buzzer();        // sound alarm through buzzer
 	scheduler_isr(); // call the ISR routine for the task-scheduler
 } // ISR()
 
@@ -339,7 +401,7 @@ void delay_msec(uint16_t ms)
   ---------------------------------------------------------------------------*/
 void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_on_val, uint8_t tmr_off_val, uint8_t mask)
 {
-	uint8_t portb = mcp230xx_read(GPIOB);
+	uint8_t portb = mcp23017_read(GPIOB);
 
 	switch (*std_td)
 	{
@@ -414,7 +476,7 @@ void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_o
 
 		default: break;	
 	} // switch 
-	mcp230xx_write(OLATB,portb); // write updated bit-values back to MCP23017 PORTB
+	mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
 } // pwm_2_time()
 
 /*-----------------------------------------------------------------------------
@@ -712,8 +774,8 @@ void init_hardware(void)
 	//------------------------------------------------------
 	// Init. PD4 for Alive_LED output
 	//------------------------------------------------------
-	DDRD  |=  ALIVE_LED; // Set PD4 as output
-	PORTD &= ~ALIVE_LED; // Init. LED to 0
+	DDRD  |=  (ALIVE_LED | BUZZER); // Set to output
+	PORTD &= ~(ALIVE_LED | BUZZER); // Init. both outputs to 0
 
 	// Set Timer 2 to 1000 Hz interrupt frequency: ISR(TIMER2_COMPA_vect)
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
@@ -880,7 +942,6 @@ int main(void)
 	{
 		xputs("mcp23017_init() error\n");
 	} // if
-	mcp23017_init();			 // Needs to be called twice (hardware bug?)
 	
 	if (ethernet_WIZ550i)        // Initialize Ethernet adapter
 	{
@@ -892,6 +953,8 @@ int main(void)
 		print_IP_address(local_ip);
 		sprintf(s,":%d\n",local_port); // add local port as read back from wiz550io module
 		xputs(s);
+		bz_rpt_max = 1; // Sound buzzer once to indicate ethernet connection ready
+		bz_on      = true;
 	} // if
 		
     while(1)

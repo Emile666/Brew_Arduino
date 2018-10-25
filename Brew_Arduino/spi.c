@@ -1,16 +1,8 @@
 /*==================================================================
-  File Name    : $Id$
-  Function name: spi_init(), spi_transfer(), spi_set_ss(), spi_reset_ss()
+  File Name    : spi.c
   Author       : E v.d. Logt
   ------------------------------------------------------------------
   Purpose : SPI-bus low-level routines
-  ------------------------------------------------------------------
-  $Log$
-  Revision 1.2  2014/05/03 11:27:44  Emile
-  - Ethernet support added for W550io module
-  - No response for L, N, P, W commands anymore
-  - All source files now have headers
-
   ================================================================== */ 
 #include "spi.h"
 

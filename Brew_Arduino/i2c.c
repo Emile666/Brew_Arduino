@@ -1,62 +1,9 @@
 /*==================================================================
-  File Name    : $Id$
-  Function name: -
+  File Name    : i2c.c
   Author       : Peter Fleury <pfleury@gmx.ch> http://jump.to/fleury
+                 other i2c-routines: Emile
   ------------------------------------------------------------------
   Purpose : I2C master library using hardware TWI interface
-  ------------------------------------------------------------------
-  $Log$
-  Revision 1.15  2016/06/11 16:50:07  Emile
-  - I2C_start() performance improved, one-wire duration from 22 -> 6 msec.
-  - Network communication now works using DHCP
-
-  Revision 1.14  2016/05/15 12:24:20  Emile
-  - I2C clock speed now adjustable
-  - IP address and port now stored in eeprom
-
-  Revision 1.13  2016/01/10 16:00:24  Emile
-  First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
-  - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
-  - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
-  - Wxxx command is now Hxxx command, new Bxxx command added.
-  - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
-  - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
-  - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
-  - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
-  - set_parameter(): parameters 7-12 removed.
-
-  Revision 1.12  2015/08/06 14:41:16  Emile
-  - Adapted for MCP23008 instead of MCP23017.
-
-  Revision 1.11  2015/06/28 12:27:35  Emile
-  - Moving_average filters now work with Q8.7 instead of Q8.4 format
-  - One-wire functions now work with DS18B20
-  - Separate ow_task() added for one-wire communication
-  - I2C clock made adjustable
-
-  Revision 1.10  2015/06/05 13:46:33  Emile
-  - Support for one-wire masters (DS2482) added (not tested yet)
-
-  Revision 1.9  2015/05/31 10:28:57  Emile
-  - Bugfix: Flowsensor reading counted rising and falling edges.
-  - Bugfix: Only valve V8 is written to at init (instead of all valves).
-
-  Revision 1.8  2015/05/12 14:18:37  Emile
-  - HW-bugfix: MCP23017 output latches needs to be written first with 0xFF.
-
-  Revision 1.7  2015/05/09 13:36:54  Emile
-  - MCP23017 Port B now always input. Port A Pull-up resistors enabled.
-  - Bug-fix for HW PCB V3.01
-
-  Revision 1.6  2014/11/30 20:44:45  Emile
-  - Vxxx command added to write valve output bits
-  - mcp23017 (16 bit I2C IO-expander) routines + defines added
-
-  Revision 1.5  2014/05/03 11:27:44  Emile
-  - Ethernet support added for W550io module
-  - No response for L, N, P, W commands anymore
-  - All source files now have headers
-
   ================================================================== */ 
 #include <inttypes.h>
 #include <compat/twi.h>
@@ -327,25 +274,6 @@ int16_t lm92_read(uint8_t dvc, uint8_t *err)
    return temp;     // Return value now in °C << 7
 } // lm92_read()
 
-uint8_t mcp23008_init(void)
-/*------------------------------------------------------------------
-  Purpose  : This function inits the MCP23008 8-bit IO-expander
-  Variables: -
-  Returns  : 0: no error, 1: error
-  ------------------------------------------------------------------*/
-{
-	uint8_t err;
-	err = mcp230xx_write(IOCON, MCP23008_INIT);
-	if (!err)
-	{
-		err = mcp230xx_write(IODIR, 0x00); // all PORT bits are output
-		err = mcp230xx_write(GPPU,  0xFF); // Enable pull-ups (100k) on PORT
-		err = mcp230xx_write(OLAT,  0x80); // HW-bug? Have to write this first
-		err = mcp230xx_write(OLAT,  0x00); // All valves are OFF at power-up
-	} // if
-	return err;	
-} // mcp23008_init()
-
 uint8_t mcp23017_init(void)
 /*------------------------------------------------------------------
   Purpose  : This function inits the MCP23017 16-bit IO-expander
@@ -354,24 +282,20 @@ uint8_t mcp23017_init(void)
   ------------------------------------------------------------------*/
 {
 	uint8_t err;
-	err = mcp230xx_write(IOCON, MCP23017_INIT);
+	err = mcp23017_write(IOCON, MCP23017_INIT);
 	if (!err)
 	{
-		err = mcp230xx_write(IODIRB, 0x00); // all PORTB bits are output
-		err = mcp230xx_write(IODIRA, 0x00); // all PORTA bits are output
-		err = mcp230xx_write(GPPUA,  0xFF); // Enable pull-ups (100k) on PORTA
-		err = mcp230xx_write(OLATA,  0x80); // HW-bug? Have to write this first
-		err = mcp230xx_write(OLATA,  0x00); // All valves are OFF at power-up
-		err = mcp230xx_write(OLATB,  0x80); // HW-bug? Have to write this first
-		err = mcp230xx_write(OLATB,  0x00); // All IO is OFF at power-up
+		err = mcp23017_write(IODIRB, 0x00); // all PORTB bits are output
+		err = mcp23017_write(IODIRA, 0x00); // all PORTA bits are output
+		err = mcp23017_write(GPIOA,  0x00); // All valves are OFF at power-up
+		err = mcp23017_write(GPIOB,  0x00); // All IO is OFF at power-up
 	} // if
 	return err;	
 } // mcp23017_init()
 
-uint8_t mcp230xx_read(uint8_t reg)
+uint8_t mcp23017_read(uint8_t reg)
 /*------------------------------------------------------------------
-  Purpose  : This function reads one register from the MCP23008 or
-             the MCP23017 IO-expander.
+  Purpose  : This function reads one register from the MCP23017 IO-expander.
   Variables:
        reg : The register to read from
   Returns  : the value returned from the register
@@ -379,25 +303,25 @@ uint8_t mcp230xx_read(uint8_t reg)
 {
 	uint8_t err, ret = 0;
 	
-	err = (i2c_select_channel(MCP230XX_I2C_CH, HSPEED) != I2C_ACK);
+	err = (i2c_select_channel(MCP23017_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
-		err = (i2c_start(MCP230XX_BASE | I2C_WRITE) == I2C_NACK); 
+		err = (i2c_start(MCP23017_BASE | I2C_WRITE) == I2C_NACK); 
 	} // if
 	if (!err)
 	{
 		err = (i2c_write(reg)  == I2C_NACK); // write register address
-		i2c_rep_start(MCP230XX_BASE | I2C_READ);
+		i2c_rep_start(MCP23017_BASE | I2C_READ);
 		ret = i2c_readNak(); // Read byte, generate I2C stop condition
 		i2c_stop();
 	} // if
 	return ret;
-} // mcp230xx_read()
+} // mcp23017_read()
 
-uint8_t mcp230xx_write(uint8_t reg, uint8_t data)
+uint8_t mcp23017_write(uint8_t reg, uint8_t data)
 /*------------------------------------------------------------------
   Purpose  : This function write one data byte to a specific register 
-			 of the MCP23008 or MCP23017 IO-expander.
+			 of the MCP23017 IO-expander.
   Variables:
        reg : The register to write to
 	   data: The data byte to write into the register
@@ -406,10 +330,10 @@ uint8_t mcp230xx_write(uint8_t reg, uint8_t data)
 {
 	uint8_t err;
 		
-	err = (i2c_select_channel(MCP230XX_I2C_CH, HSPEED) != I2C_ACK);
+	err = (i2c_select_channel(MCP23017_I2C_CH, HSPEED) != I2C_ACK);
 	if (!err) 
 	{   // generate I2C start + output address to I2C bus
-		err = (i2c_start(MCP230XX_BASE | I2C_WRITE) == I2C_NACK);
+		err = (i2c_start(MCP23017_BASE | I2C_WRITE) == I2C_NACK);
 	} // if
 	if (!err)
 	{
@@ -418,7 +342,7 @@ uint8_t mcp230xx_write(uint8_t reg, uint8_t data)
 		i2c_stop();
 	} // if
 	return err;
-} // mcp230xx_write()
+} // mcp23017_write()
 
 //--------------------------------------------------------------------------
 // Perform a device reset on the DS2482

@@ -1,57 +1,8 @@
 /*==================================================================
-  File Name    : $Id$
-  Function name: -
+  File Name    : brew_arduino.h
   Author       : E. van de Logt
   ------------------------------------------------------------------
   Purpose      : This is the header-file for brew_arduino.h
-  Compatibility: R1.7 <-> ebrew R1.65
-				 R1.8 <-> ebrew R1.66
-  ------------------------------------------------------------------
-  $Log$
-  Revision 1.13  2016/05/15 12:24:20  Emile
-  - I2C clock speed now adjustable
-  - IP address and port now stored in eeprom
-
-  Revision 1.12  2016/01/10 16:00:24  Emile
-  First version (untested!) for new HW PCB 3.30 with 4 x temperature, 4 x flowsensor and 2 PWM outputs.
-  - Added: owb_task(), owc_task(), tcfc_ and tboil_ variables. Removed: vhlt_ and vhlt_ variables.
-  - A5..A8 commands added (flowsensors), A1..A4 commands re-arranged.
-  - Wxxx command is now Hxxx command, new Bxxx command added.
-  - pwm_write() and pwm_2_time() now for 2 channels (HLT and Boil): OCR1A and OCR1B timers used.
-  - SPI_SS now from PB2 to PD7 (OC1B/PB2 used for 2nd PWM signal). PWM freq. now set to 25 kHz.
-  - PCINT1_vect now works with 4 flowsensors: flow_cfc_out and flow4 added.
-  - MCP23017 instead of MCP23008: PORTB used for HLT_NMOD, HLT_230V, BOIL_NMOD, BOIL_230V and PUMP_230V.
-  - set_parameter(): parameters 7-12 removed.
-
-  Revision 1.11  2015/06/28 12:27:35  Emile
-  - Moving_average filters now work with Q8.7 instead of Q8.4 format
-  - One-wire functions now work with DS18B20
-  - Separate ow_task() added for one-wire communication
-  - I2C clock made adjustable
-
-  Revision 1.10  2015/05/31 10:28:57  Emile
-  - Bugfix: Flowsensor reading counted rising and falling edges.
-  - Bugfix: Only valve V8 is written to at init (instead of all valves).
-
-  Revision 1.9  2014/11/09 15:38:34  Emile
-  - PUMP_LED removed from PD2, PUMP_230V has same function
-  - Interface for 2nd waterflow sensor added to PD2
-  - Command A6 (read waterflow in E-2 L) added
-  - FLOW_PER_L changed to 330 (only rising edge is counted)
-
-  Revision 1.8  2014/06/15 14:52:20  Emile
-  - Commands E0 and E1 (Disable/Enable Ethernet module) added
-  - Interface for waterflow sensor added to PC3/ADC3
-  - Command A5 (read waterflow in E-2 L) added
-
-  Revision 1.7  2014/06/01 13:46:02  Emile
-  Bug-fix: do not call udp routines when in COM port mode!
-
-  Revision 1.6  2014/05/03 11:27:44  Emile
-  - Ethernet support added for W550io module
-  - No response for L, N, P, W commands anymore
-  - All source files now have headers
-
   ================================================================== */ 
 #ifndef _BREW_ARDUINO_H_
 #define _BREW_ARDUINO_H_
@@ -64,7 +15,7 @@
 //                    (RESET) PC6 [03]    [28] PC6 (RESET) 
 //                            GND [04]    [27] VCC
 // Dig.02 - - -        (INT0) PD2 [05]    [26] PC2 (ADC7)     - - - analog 7
-// Dig.03 - - -        (INT1) PD3 [06]    [25] PC1 (ADC6)     LM35  analog 6
+// Dig.03 BUZZER       (INT1) PD3 [06]    [25] PC1 (ADC6)     LM35  analog 6
 // Dig.04 ALIVE_LED  (XCK/TO) PD4 [07]    [24] PC5 (ADC5/SCL) SCL   analog 5
 // Dig.05 - - -          (T1) PD5 [08]    [23] PC4 (ADC4/SDA) SDA   analog 4
 // Dig.06 - - -        (AIN0) PD6 [09]    [22] PC3 (ADC3)     FLOW1 analog 3
@@ -109,6 +60,7 @@
 // PORTD defines
 //-----------------------------
 #define ALIVE_LED  (0x10)
+#define BUZZER     (0x08)
 
 //-----------------------------
 // PORTB of MCP23017 defines
@@ -126,6 +78,15 @@
 #define GAS_MODULATING     (0)
 #define GAS_NON_MODULATING (1)
 #define ELECTRICAL_HEATING (2)
+
+//-----------------------------
+// Buzer STD modes
+//-----------------------------
+#define BZ_OFF   (0)
+#define BZ_ON    (1)
+#define BZ_ON2   (2)
+#define BZ_BURST (3)
+#define BZ_SHORT (4)
 
 //-----------------------------
 // pwm_2_time() States

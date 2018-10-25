@@ -1,12 +1,10 @@
 /*==================================================================
-  File Name    : $Id$
+  File Name    : Ethernet.h
   Function name: -
   Author       : Soohwan Kim (suhwan@wiznet.co.kr), mod. 12 Aug 2013
 				 C-version: E v.d. Logt
   ------------------------------------------------------------------
   Purpose : This is the header file for the ethernet routines
-  ------------------------------------------------------------------
-  $Log$
   ================================================================== */ 
 #ifndef ETHERNET5500_H
 #define ETHERNET5500_H
