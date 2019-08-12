@@ -2,7 +2,7 @@
 Arduino Nano firmware for my home-brewery
 
 ![frontpanel](img/main_pcb_picture.jpg)<br>
-*Top view of v3.30 of the main-PCB*
+*Top view of v3.50 of the main-PCB*
 
 # Features
 The current PCB and firmware have the following features:
@@ -15,7 +15,7 @@ The current PCB and firmware have the following features:
 - Network and USB connection to PC
 
 ![frontpanel](img/hw_architecture.png)<br>
-*Hardware architecture of PCB v3.30*
+*Hardware architecture of PCB v3.50*
 
 More hardware and firmware design details: see my website: http://www.vandelogt.nl/uk_hardware.php
 
