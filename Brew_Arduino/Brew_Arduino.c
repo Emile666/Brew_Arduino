@@ -4,7 +4,7 @@
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
 // Revision 1.35  2020/05/10 14:38:00  Emile
-// - delayed-start function added
+// - delayed-start function added with eeprom save
 // - D0, D1 and D2 commands for delayed-start added
 //
 // Revision 1.34  2018/10/25 11:12:00  Emile
@@ -266,12 +266,11 @@ uint8_t  bz_rpt_max;       // number of beeps to make
 uint16_t bz_tmr;           // buzzer msec counter
 
 //------------------------------------------------
-// Delayed Start variables
+// Delayed-start variables
 //------------------------------------------------
 bool     delayed_start_enable  = false;          // true = delayed start is enabled
 uint16_t delayed_start_time    = 0;              // delayed start time in 2 sec. counts 
-uint16_t delayed_start_timer1  = 0;              // timer to countdown until delayed start
-uint16_t delayed_start_timer2  = 0;              // timer for max. burn in minutes (max. 120 minutes)
+uint16_t delayed_start_timer1;                   // timer to countdown until delayed start
 uint8_t  delayed_start_std     = DEL_START_INIT; // std number, start in INIT state
 
 /*------------------------------------------------------------------
@@ -282,44 +281,63 @@ uint8_t  delayed_start_std     = DEL_START_INIT; // std number, start in INIT st
   ------------------------------------------------------------------*/
 void process_delayed_start(void)
 {
-	uint8_t        pwm     = 0; // duty-cycle for HLT burner
-	uint8_t    led_tmr_max = 0; // blink every x seconds  
-    static uint8_t led_tmr = 0; // Timer for blinking of RED led
-		
+	uint8_t         pwm         = 0; // duty-cycle for HLT burner
+	uint8_t         led_tmr_max = 0; // blink every x seconds  
+    static uint8_t  led_tmr     = 0; // Timer for blinking of RED led
+	static uint16_t eep_tmr;         // minute counter for eeprom write
+	static uint16_t timer2;          // timer for max. burn in minutes (max. 120 minutes)
+	
 	switch (delayed_start_std)
 	{
-		case DEL_START_INIT:
+		case DEL_START_INIT: // Delayed-start is not enabled
 		         if (delayed_start_enable)
 				 {
-				    delayed_start_timer1 = 0;
-					delayed_start_std    = DEL_START_TMR; // start countdown timer
+				    delayed_start_timer1 = eeprom_read_word(EEPARB_DEL_START_TMR1); // read value from eeprom
+				    delayed_start_time   = eeprom_read_word(EEPARB_DEL_START_TIME); // read value from eeprom
+					eep_tmr              = 0;                      // reset eeprom minute timer
+					delayed_start_std    = DEL_START_TMR;          // start countdown timer
 				 } // if				 
 				 led_tmr_max = 0; // no blinking
 			     break;
-		case DEL_START_TMR:
+
+		case DEL_START_TMR: // The delayed-start timer is running, no time-out yet
 			     if (!delayed_start_enable)
-				     delayed_start_std = DEL_START_INIT;
-				 else if (++delayed_start_timer1 >= delayed_start_time)
 				 {
-					 delayed_start_timer2 = 0;              // init. burn-timer 
-					 delayed_start_std    = DEL_START_BURN; // start HLT burner
+				     eeprom_write_byte(EEPARB_DEL_START_ENA,false); // reset enable in eeprom
+				     delayed_start_std = DEL_START_INIT;
+				 } // if				 
+				 else if (++delayed_start_timer1 >= delayed_start_time)
+				 {   // delayed-start counted down
+					 timer2            = 0;              // init. burn-timer 
+					 delayed_start_std = DEL_START_BURN; // start HLT burner
+				 } // if
+				 if (++eep_tmr >= 30)
+				 {   // save in eeprom every minute
+					 eep_tmr = 0;
+					 eeprom_write_word(EEPARB_DEL_START_TMR1,delayed_start_timer1);
 				 } // if
 				 led_tmr_max = 5; // blink once every 10 seconds
 				 break;
-		case DEL_START_BURN:
+
+		case DEL_START_BURN: // Delayed-start time-out, HLT-burner is burning
 			     if (!delayed_start_enable)
+				 {
+				     eeprom_write_byte(EEPARB_DEL_START_ENA,false); // reset enable in eeprom
 					 delayed_start_std = DEL_START_INIT;
+				 } // if
 				 else 
 				 {		 
 					pwm = 80; // HLT burner with fixed percentage of 80 %
-				    if (++delayed_start_timer2 >= DEL_START_MAX_TIME) 
+				    if (++timer2 >= DEL_START_MAX_BURN_TIME) 
 					{   // Safety feature, set burn-time to max. of 2 hours
 						delayed_start_enable = false; // prevent another burn
 						delayed_start_std    = DEL_START_INIT;
-					} // if					
+						eeprom_write_byte(EEPARB_DEL_START_ENA,false); // reset enable in eeprom
+					} // if
 				 } // else				 
-				 led_tmr_max = 1; // blink once every 2 seconds
+				 led_tmr_max = 1; // blink once every 4 seconds
 				 break;
+
 		default: delayed_start_std = DEL_START_INIT;
 		         break;
 	} // switch
@@ -991,7 +1009,7 @@ int main(void)
 	pwm_write(PWMH,0);	     // Start with 0 % duty-cycle for HLT
 
     check_and_init_eeprom(); // EEPROM init.
-	read_eeprom_parameters();// Read EEPROM value for ETHUSB
+	read_eeprom_parameters();// Read EEPROM value for ETHUSB and delayed-start
 	
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements

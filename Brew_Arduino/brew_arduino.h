@@ -96,7 +96,8 @@
 #define DEL_START_INIT   (0)
 #define DEL_START_TMR    (1)
 #define DEL_START_BURN   (2)
-#define DEL_START_MAX_TIME (3600) /* Max. time is 120 minutes */
+#define DEL_START_MAX_DELAY_TIME (54000) /* Max. time is 30 hours * 60 minutes * 30 * 2 seconds */
+#define DEL_START_MAX_BURN_TIME   (3600) /* Max. time is 120 minutes * 30 * 2 seconds */
 
 //-----------------------------
 // pwm_2_time() States

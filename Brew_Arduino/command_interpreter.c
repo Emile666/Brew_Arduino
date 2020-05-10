@@ -468,7 +468,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					   {
 						   udp_beginPacketIP(remoteIP, EBREW_PORT_NR); // send response back
 					   } // if
-					   sprintf(s2,"delay-time remaining: %d minutes\n",(delayed_start_time - delayed_start_timer1)/30);
+					   sprintf(s2,"delayed-start:[%d]%d/%d min.\n",delayed_start_enable,delayed_start_timer1/30,delayed_start_time/30);
 					   rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
 					   if (rs232_udp == ETHERNET_UDP)
 					   {
@@ -484,12 +484,18 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					   else
 					   {   // (s[2] == ' ') and (strlen(s) >= 4)
 						   temp = atoi(&s[2]) * 30;        // convert minutes to 2-second time counts
-						   if (temp > 54000)
-						   {    // limit delayed-start to 30 hours (30 hrs * 60 min. * 30 2-sec counts)
+						   if (temp > DEL_START_MAX_DELAY_TIME)
+						   {    // limit delayed-start to 30 hours
 							    rval = ERR_NUM; 
 						   } // if						   
-						   else delayed_start_time = temp; // set delayed-start time
-						   delayed_start_enable    = true; // and go...
+						   else 
+						   {
+							   delayed_start_time = temp; // delayed-start time
+							   eeprom_write_word(EEPARB_DEL_START_TIME,delayed_start_time);
+							   eeprom_write_word(EEPARB_DEL_START_TMR1,0);    // reset timer
+							   eeprom_write_byte(EEPARB_DEL_START_ENA,true);  // write enable to eeprom
+							   delayed_start_enable = true; // and go...
+						   } // else
 					   } // else
 				   } // if
 				   else delayed_start_enable = false; // D0 command cancels delayed-start
