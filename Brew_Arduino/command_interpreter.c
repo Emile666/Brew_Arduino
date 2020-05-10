@@ -57,6 +57,10 @@ extern unsigned long flow4;            // Count from FLOW4 (future use)
 extern bool    bz_on;      // true = buzzer-on
 extern uint8_t bz_rpt_max; // number of buzzer repeats
 
+extern bool     delayed_start_enable;  // true = delayed start is enabled
+extern uint16_t delayed_start_time;    // delayed start time in 2 sec. counts
+extern uint16_t delayed_start_timer1;  // timer to countdown until delayed start
+
 char    rs232_inbuf[USART_BUFLEN];     // buffer for RS232 commands
 uint8_t rs232_ptr = 0;                 // index in RS232 buffer
 
@@ -378,6 +382,9 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
 				    - PWM output for modulating gas-valve (N0=0)
 				    - Time-Division ON/OFF signal for Non-Modulating gas-valve (N0=1)
 				    - Time-Division ON/OFF signal for Electrical heating-element (N0=2)
+   - D0           : Disable delayed-start
+     D1           : Set time in minutes for delayed-start and enable delayed-start
+     D2           : Get remaining time in minutes for delayed-start
    - E0 / E1      : Ethernet with WIZ550io Disabled / Enabled
    - H0...H100    : PID-output for HLT, needed for:
 				    - PWM output for modulating gas-valve (N0=0)
@@ -388,7 +395,7 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
      N1..N6       : Parameter settings
    - P0 / P1      : set Pump OFF / ON
    - R0           : Reset all flows
-   - S0           : Ebrew hardware revision number
+   - S0           : Ebrew hardware revision number (also disables delayed-start)
 	 S1			  : List value of parameters that can be set with Nx command
 	 S2           : List all connected I2C devices  
 	 S3           : List all tasks
@@ -451,6 +458,44 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				else process_pwm_signal(PWMB,num);
 				break;
 
+	   case 'd': // Delayed-start option
+			   if (num > 2) rval = ERR_NUM;
+			   else
+			   {   // D0 (disable), D1 (set) or D2 (get) command
+				   if (num > 1)
+				   {   // D2 command: show remaining time until HLT-burner start
+					   if (rs232_udp == ETHERNET_UDP)
+					   {
+						   udp_beginPacketIP(remoteIP, EBREW_PORT_NR); // send response back
+					   } // if
+					   sprintf(s2,"delay-time remaining: %d minutes\n",(delayed_start_time - delayed_start_timer1)/30);
+					   rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+					   if (rs232_udp == ETHERNET_UDP)
+					   {
+						   udp_endPacket(); // send response
+					   } // if
+				   } // if
+				   else if (num)
+				   {   // D1 command: set delayed_start timer
+				       if ((s[2] != ' ') || (strlen(s) < 4))
+					   {  // check for error in command: 'd1 yy'
+						 rval = ERR_CMD;
+					   } // if
+					   else
+					   {   // (s[2] == ' ') and (strlen(s) >= 4)
+						   temp = atoi(&s[2]) * 30;        // convert minutes to 2-second time counts
+						   if (temp > 54000)
+						   {    // limit delayed-start to 30 hours (30 hrs * 60 min. * 30 2-sec counts)
+							    rval = ERR_NUM; 
+						   } // if						   
+						   else delayed_start_time = temp; // set delayed-start time
+						   delayed_start_enable    = true; // and go...
+					   } // else
+				   } // if
+				   else delayed_start_enable = false; // D0 command cancels delayed-start
+			   } // else
+			   break;
+
 	   case 'e': // Enable/Disable Ethernet with WIZ550io
 			   if (num < 2)
 			   {
@@ -478,8 +523,8 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 if (num > 1) rval = ERR_NUM;
 				 else
 			  	 {
-					 if (num) PORTD |=  ALIVE_LED;
-					 else     PORTD &= ~ALIVE_LED;
+					 if (num) PORTD |=  ALIVE_LED_B;
+					 else     PORTD &= ~ALIVE_LED_B;
 				 } // else
 				 break;
 
@@ -532,6 +577,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 					 case 0: // Ebrew revision
 							 print_ebrew_revision(s2); // print CVS revision number
 				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+							 delayed_start_enable = false;  // disable delayed-start when PC program is powering-up
 							 break;
 					 case 1: // List parameters
 							 sprintf(s2,"SYS:%01d,%d,%d,%d,%d,%d,%d\n",system_mode, 
