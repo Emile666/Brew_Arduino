@@ -3,6 +3,10 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.35  2020/05/10 14:38:00  Emile
+// - delayed-start function added
+// - D0, D1 and D2 commands for delayed-start added
+//
 // Revision 1.34  2018/10/25 11:12:00  Emile
 // - Bugfix MCP23017 addressing, IOCON definition was for BANK==1. Now all
 //          definitions are for BANK==0, which is the default at power-up.
@@ -167,7 +171,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.34 $";   // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.35 $";   // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -251,13 +255,89 @@ unsigned long    flow_cfc_out  = 0UL; // Count from flow-sensor at output of CFC
 unsigned long    flow4         = 0UL; // Count from FLOW4 (future use)
 volatile uint8_t old_flows     = 0x0F; // default is high because of the pull-up
 
-bool     bz_on = false;
-bool     bz_dbl;
-uint8_t  bz_std = BZ_OFF;
-uint8_t  bz_rpt;
-uint8_t  bz_rpt_max;
-uint16_t bz_tmr;
+//------------------------------------------------
+// Buzzer variables
+//------------------------------------------------
+bool     bz_on = false;    // true = buzzer is enabled
+bool     bz_dbl;           // true = generate 2nd beep
+uint8_t  bz_std = BZ_OFF;  // std number
+uint8_t  bz_rpt;           // buzzer repeat counter
+uint8_t  bz_rpt_max;       // number of beeps to make
+uint16_t bz_tmr;           // buzzer msec counter
 
+//------------------------------------------------
+// Delayed Start variables
+//------------------------------------------------
+bool     delayed_start_enable  = false;          // true = delayed start is enabled
+uint16_t delayed_start_time    = 0;              // delayed start time in 2 sec. counts 
+uint16_t delayed_start_timer1  = 0;              // timer to countdown until delayed start
+uint16_t delayed_start_timer2  = 0;              // timer for max. burn in minutes (max. 120 minutes)
+uint8_t  delayed_start_std     = DEL_START_INIT; // std number, start in INIT state
+
+/*------------------------------------------------------------------
+  Purpose  : This is the delayed-start routine which is called by 
+             lm35_task() every 2 seconds. 
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
+void process_delayed_start(void)
+{
+	uint8_t        pwm     = 0; // duty-cycle for HLT burner
+	uint8_t    led_tmr_max = 0; // blink every x seconds  
+    static uint8_t led_tmr = 0; // Timer for blinking of RED led
+		
+	switch (delayed_start_std)
+	{
+		case DEL_START_INIT:
+		         if (delayed_start_enable)
+				 {
+				    delayed_start_timer1 = 0;
+					delayed_start_std    = DEL_START_TMR; // start countdown timer
+				 } // if				 
+				 led_tmr_max = 0; // no blinking
+			     break;
+		case DEL_START_TMR:
+			     if (!delayed_start_enable)
+				     delayed_start_std = DEL_START_INIT;
+				 else if (++delayed_start_timer1 >= delayed_start_time)
+				 {
+					 delayed_start_timer2 = 0;              // init. burn-timer 
+					 delayed_start_std    = DEL_START_BURN; // start HLT burner
+				 } // if
+				 led_tmr_max = 5; // blink once every 10 seconds
+				 break;
+		case DEL_START_BURN:
+			     if (!delayed_start_enable)
+					 delayed_start_std = DEL_START_INIT;
+				 else 
+				 {		 
+					pwm = 80; // HLT burner with fixed percentage of 80 %
+				    if (++delayed_start_timer2 >= DEL_START_MAX_TIME) 
+					{   // Safety feature, set burn-time to max. of 2 hours
+						delayed_start_enable = false; // prevent another burn
+						delayed_start_std    = DEL_START_INIT;
+					} // if					
+				 } // else				 
+				 led_tmr_max = 1; // blink once every 2 seconds
+				 break;
+		default: delayed_start_std = DEL_START_INIT;
+		         break;
+	} // switch
+	if ((led_tmr_max > 0) && (++led_tmr > led_tmr_max))
+	{    // blink once every led_tmr_max seconds
+		 led_tmr = 0;
+		 PORTD |= ALIVE_LED_R;
+	} // if
+	else PORTD &= ~ALIVE_LED_R;
+	process_pwm_signal(PWMH,pwm); // Enable HLT burner with fixed percentage
+} // process_delayed_start()
+
+/*------------------------------------------------------------------
+  Purpose  : This is the buzzer routine which runs every msec. 
+             (f=1 kHz). It is used by 1 kHz interrupt routine.
+  Variables: -
+  Returns  : -
+  ------------------------------------------------------------------*/
 void buzzer(void)
 {
 	switch (bz_std)
@@ -483,9 +563,8 @@ void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_o
   Purpose  : This task converts a PWM signal into a time-division signal of 
              100 * 50 msec. This routine should be called from the timer-interrupt 
 			 every 50 msec. It uses the tmr_on_val and tmr_off_val values which 
-			 were set by the process_pwm_signal. If Electrical Heating (with a 
-			 heating element) is NOT enabled, this routine returns immediately 
-			 without doing anything.
+			 were set by the process_pwm_signal and is only executed when
+			 Electrical Heating (with a heating element) is enabled.
   Variables: - 
   Returns  : -
   ---------------------------------------------------------------------------*/
@@ -507,10 +586,14 @@ void pwm_task(void)
 
 /*--------------------------------------------------------------------
   Purpose  : This is the task that processes the temperature from
-             the LM35 temperature sensor. This sensor is connected
-			 to ADC0. The LM35 outputs 10 mV/°C ; VREF=1.1 V,
-			 therefore => Max. Temp. = 11000 E-2 °C
+             the LM35 temperature sensor. It is called once every 2 seconds.
+			 This sensor is connected to ADC0. The LM35 outputs 10 mV/°C,
+			 VREF=1.1 V, therefore => Max. Temp. = 11000 E-2 °C
 			 Conversion constant = 11000 / 1023 = 10.7526882
+
+			 It also executes the delayed-start function, which will fire the
+			 HLT burner after a number of minutes set by the D0 command.
+
   Variables: lm35_temp    : contains temperature in E-2 °C
 			 lm35_frac    : contains fractional temperature in E-2 °C
 			 lm35_ma      : moving-average filter struct for lm35_temp
@@ -533,6 +616,7 @@ void lm35_task(void)
 	{  // set hysteresis if temp > upper limit
 		triac_too_hot = (lm35_temp > triac_hlimit);
 	} // else
+    process_delayed_start(); // process delayed-start function
 } // lm35_task()
 
 /*--------------------------------------------------------------------
@@ -772,10 +856,10 @@ void init_hardware(void)
 	PCMSK1 |= (1<<PCINT11) | (1<<PCINT10) | (1<<PCINT9) | (1<<PCINT8); // Enable pin change interrupts
 
 	//------------------------------------------------------
-	// Init. PD4 for Alive_LED output
+	// Init. Buzzer and Alive_LED outputs
 	//------------------------------------------------------
-	DDRD  |=  (ALIVE_LED | BUZZER); // Set to output
-	PORTD &= ~(ALIVE_LED | BUZZER); // Init. both outputs to 0
+	DDRD  |=  (ALIVE_LED_R | ALIVE_LED_G | ALIVE_LED_B | BUZZER); // Set to output
+	PORTD &= ~(ALIVE_LED_R | ALIVE_LED_G | ALIVE_LED_B | BUZZER); // Init. both outputs to 0
 
 	// Set Timer 2 to 1000 Hz interrupt frequency: ISR(TIMER2_COMPA_vect)
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
