@@ -3,6 +3,9 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.36  2020/08/17 17:33:00  Emile
+// - Bug-fix HLT PWM output: delayed-start function blocked this.
+//
 // Revision 1.35  2020/05/10 14:38:00  Emile
 // - delayed-start function added with eeprom save
 // - D0, D1 and D2 commands for delayed-start added
@@ -171,7 +174,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.35 $";   // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.36 $";   // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -281,7 +284,6 @@ uint8_t  delayed_start_std     = DEL_START_INIT; // std number, start in INIT st
   ------------------------------------------------------------------*/
 void process_delayed_start(void)
 {
-	uint8_t         pwm         = 0; // duty-cycle for HLT burner
 	uint8_t         led_tmr_max = 0; // blink every x seconds  
     static uint8_t  led_tmr     = 0; // Timer for blinking of RED led
 	static uint16_t eep_tmr;         // minute counter for eeprom write
@@ -327,7 +329,7 @@ void process_delayed_start(void)
 				 } // if
 				 else 
 				 {		 
-					pwm = 80; // HLT burner with fixed percentage of 80 %
+					process_pwm_signal(PWMH,80); // Enable HLT burner with fixed percentage
 				    if (++timer2 >= DEL_START_MAX_BURN_TIME) 
 					{   // Safety feature, set burn-time to max. of 2 hours
 						delayed_start_enable = false; // prevent another burn
@@ -347,7 +349,6 @@ void process_delayed_start(void)
 		 PORTD |= ALIVE_LED_R;
 	} // if
 	else PORTD &= ~ALIVE_LED_R;
-	process_pwm_signal(PWMH,pwm); // Enable HLT burner with fixed percentage
 } // process_delayed_start()
 
 /*------------------------------------------------------------------
