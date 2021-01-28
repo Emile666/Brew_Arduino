@@ -3,6 +3,9 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.37  2021/01/27 21:44:00  Emile
+// - thlt_ow and tmlt_ow now sent separately to PC
+//
 // Revision 1.36  2020/08/17 17:33:00  Emile
 // - Bug-fix HLT PWM output: delayed-start function blocked this.
 //
@@ -174,7 +177,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.36 $";   // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.37 $"; // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -215,25 +218,41 @@ uint16_t triac_hlimit  = 7500;	    // Hysteresis upper-limit for triac_too_hot i
 uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
 
 //------------------------------------------------
-// THLT parameters and variables (I2C or One-Wire)
+// THLT parameters and variables (I2C)
 //------------------------------------------------
 int16_t  temp_slope_87  = 512;      // Temperature slope-limiter is 4 °C/ 2 sec. * 128
 ma       thlt_ma;                   // struct for THLT moving_average filter
 int16_t  thlt_old_87;               // Previous value of thlt_temp_87
 int16_t  thlt_temp_87;              // THLT Temperature from LM92 in °C * 128
+uint8_t  thlt_err = 0;              // 1 = Read error from LM92
+
+//-----------------------------------------------------
+// THLT parameters and variables (One-Wire). Used for:
+// 1) Backup for THLT-I2C
+// 2) Can be used as extra temp. sensor
+//-----------------------------------------------------
+ma       thlt_ow_ma;                // struct for THLT_OW moving_average filter
+int16_t  thlt_ow_old_87;            // Previous value of thlt_ow_87
 int16_t  thlt_ow_87;                // THLT Temperature from DS18B20 in °C * 128
-uint8_t  thlt_err       = 0;        // 1 = Read error from LM92
-uint8_t  thlt_ow_err    = 0;	    // 1 = Read error from DS18B20
+uint8_t  thlt_ow_err = 0;	        // 1 = Read error from DS18B20
  
 //------------------------------------------------
-// TMLT parameters and variables (I2C or One-Wire)
+// TMLT parameters and variables (I2C)
 //------------------------------------------------
 ma       tmlt_ma;                   // struct for TMLT moving_average filter
 int16_t  tmlt_old_87;               // Previous value of tmlt_temp_87
 int16_t  tmlt_temp_87;              // TMLT Temperature from LM92 in °C * 128
+uint8_t  tmlt_err = 0;              // 1 = Read error from LM92
+
+//-----------------------------------------------------
+// TMLT parameters and variables (One-Wire). Used for:
+// 1) Backup for TMLT-I2C
+// 2) Can be used as extra temp. sensor
+//-----------------------------------------------------
+ma       tmlt_ow_ma;                // struct for TMLT_OW moving_average filter
+int16_t  tmlt_ow_old_87;            // Previous value of tmlt_ow_87
 int16_t  tmlt_ow_87;                // TMLT Temperature from DS18B20 in °C * 128
-uint8_t  tmlt_err       = 0;        // 1 = Read error from LM92
-uint8_t  tmlt_ow_err    = 0;	    // 1 = Read error from DS18B20
+uint8_t  tmlt_ow_err = 0;	        // 1 = Read error from DS18B20
 
 //------------------------------------------------
 // TCFC parameters and variables (One-Wire only)
@@ -241,7 +260,7 @@ uint8_t  tmlt_ow_err    = 0;	    // 1 = Read error from DS18B20
 ma       tcfc_ma;                   // struct for TCFC moving_average filter
 int16_t  tcfc_old_87;               // Previous value of tcfc_temp_87
 int16_t  tcfc_temp_87;              // TCFC Temperature in °C * 128
-uint8_t  tcfc_err       = 0;        // 1 = Read error from DS18B20  
+uint8_t  tcfc_err = 0;              // 1 = Read error from DS18B20  
 
 //------------------------------------------------
 // TBOIL parameters and variables (One-Wire only)
@@ -249,7 +268,7 @@ uint8_t  tcfc_err       = 0;        // 1 = Read error from DS18B20
 ma       tboil_ma;                  // struct for TBOIL moving_average filter
 int16_t  tboil_old_87;              // Previous value of tboil_temp_87
 int16_t  tboil_temp_87;             // TBOIL Temperature in °C * 128
-uint8_t  tboil_err       = 0;       // 1 = Read error from DS18B20
+uint8_t  tboil_err = 0;             // 1 = Read error from DS18B20
 
 unsigned long    t2_millis     = 0UL;
 unsigned long    flow_hlt_mlt  = 0UL;
@@ -665,13 +684,8 @@ void thlt_task(void)
 	
 	thlt_old_87 = thlt_temp_87; // copy previous value of thlt_temp
 	tmp         = lm92_read(THLT, &thlt_err); // returns a signed Q8.7 format
-	if (thlt_err && !thlt_ow_err)
-	{   // No I2C sensor (LM92) found, one-wire sensor is present
-		thlt_err = FALSE; // reset error
-		tmp      = thlt_ow_87;
-	} // if
 	if (!thlt_err) 
-	{	// filter if either I2C or One-Wire has been read successfully
+	{	// filter if I2C-sensor has been read successfully
 		slope_limiter(temp_slope_87, thlt_old_87, &tmp);
 		thlt_temp_87 = (int16_t)(moving_average(&thlt_ma, (float)tmp) + 0.5);
 	} // if
@@ -704,13 +718,8 @@ void tmlt_task(void)
 	
 	tmlt_old_87 = tmlt_temp_87; // copy previous value of tmlt_temp
 	tmp         = lm92_read(TMLT, &tmlt_err); // returns a signed Q8.7 format
-	if (tmlt_err && !tmlt_ow_err)
-	{   // No I2C sensor (LM92) found, one-wire sensor is ok
-		tmlt_err = FALSE; // reset error
-		tmp      = tmlt_ow_87;
-	} // if
 	if (!tmlt_err)
-	{	// filter if either I2C or One-Wire has been read successfully
+	{	// filter if I2C-sensor has been read successfully
 		slope_limiter(temp_slope_87, tmlt_old_87, &tmp);
 		tmlt_temp_87 = (int16_t)(moving_average(&tmlt_ma, (float)tmp) + 0.5);
 	} // else
@@ -733,6 +742,7 @@ void tmlt_task(void)
 void owh_task(void)
 {
 	static int owh_std = 0; // internal state
+	int16_t    tmp;         // temporary variable (signed Q8.7 format)
 	
 	switch (owh_std)
 	{   
@@ -740,8 +750,14 @@ void owh_task(void)
 				ds18b20_start_conversion(DS2482_THLT_BASE);
 				owh_std = 1;
 				break;
-		case 1: // Read Thlt device
-			    thlt_ow_87 = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err,1);
+		case 1: // Read Thlt_ow device
+				thlt_ow_old_87 = thlt_ow_87; // copy previous value of thlt_ow
+			    tmp = ds18b20_read(DS2482_THLT_BASE, &thlt_ow_err,1);
+				if (!thlt_ow_err)
+				{
+					slope_limiter(temp_slope_87, thlt_ow_old_87, &tmp);
+					thlt_ow_87 = (int16_t)(moving_average(&thlt_ow_ma, (float)tmp) + 0.5);
+				} // if
 				owh_std = 0;
 				break;
 	} // switch
@@ -764,6 +780,7 @@ void owh_task(void)
 void owm_task(void)
 {
 	static int owm_std = 0; // internal state
+	int16_t    tmp;         // temporary variable (signed Q8.7 format)
 	
 	switch (owm_std)
 	{   
@@ -771,8 +788,14 @@ void owm_task(void)
 				ds18b20_start_conversion(DS2482_TMLT_BASE);
 				owm_std = 1;
 				break;
-		case 1: // Read Tmlt device
-			    tmlt_ow_87 = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err,1);
+		case 1: // Read Tmlt_ow device
+				tmlt_ow_old_87 = tmlt_ow_87; // copy previous value of tmlt_ow
+			    tmp = ds18b20_read(DS2482_TMLT_BASE, &tmlt_ow_err,1);
+				if (!tmlt_ow_err)
+				{
+					slope_limiter(temp_slope_87, tmlt_ow_old_87, &tmp);
+					tmlt_ow_87 = (int16_t)(moving_average(&tmlt_ow_ma, (float)tmp) + 0.5);
+				} // if
 				owm_std = 0;
 				break;
 	} // switch
@@ -1015,16 +1038,20 @@ int main(void)
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
-	init_moving_average(&lm35_ma,10, (float)INIT_TEMP * 100.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&thlt_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tmlt_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tcfc_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tboil_ma,10,(float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&lm35_ma,10   , (float)INIT_TEMP * 100.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&thlt_ma,10   , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&tmlt_ma,10   , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&tcfc_ma,10   , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&tboil_ma,10  , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&thlt_ow_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&tmlt_ow_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
 	lm35_temp     = INIT_TEMP * 100;
 	thlt_temp_87  = INIT_TEMP << 7;
 	tmlt_temp_87  = INIT_TEMP << 7;
 	tcfc_temp_87  = INIT_TEMP << 7;
 	tboil_temp_87 = INIT_TEMP << 7;
+	thlt_ow_87    = INIT_TEMP << 7;
+	tmlt_ow_87    = INIT_TEMP << 7;
 
 	// Initialize Serial Communication, See usart.h for BAUD
 	// F_CPU should be a Project Define (-DF_CPU=(xxxL)

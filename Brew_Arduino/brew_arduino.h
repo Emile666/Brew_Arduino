@@ -1,6 +1,6 @@
 /*==================================================================
   File Name    : brew_arduino.h
-  Author       : E. van de Logt
+  Author       : Emile
   ------------------------------------------------------------------
   Purpose      : This is the header-file for brew_arduino.h
   ================================================================== */ 
@@ -67,19 +67,19 @@
 //-----------------------------
 // PORTB of MCP23017 defines
 //-----------------------------
-#define HLT_NMOD   (0x01)
-#define HLT_230V   (0x02)
-#define BOIL_NMOD  (0x04)
-#define BOIL_230V  (0x08)
-#define PUMP_230V  (0x10)
-#define PUMP2_230V (0x20)
+#define HLT_NMOD   (0x01) /* On/Off non-modulating HLT gas-valve 230V */
+#define HLT_230V   (0x02) /* On/Off control modulating HLT gas-valve 230V  or slow SSR signal electrical heating*/
+#define BOIL_NMOD  (0x04) /* On/Off non-modulating BK gas-valve 230V */
+#define BOIL_230V  (0x08) /* On/Off control modulating gas-valve 230V or slow SSR signal electrical heating */
+#define PUMP_230V  (0x10) /* Main pump Triac/SSR */
+#define PUMP2_230V (0x20) /* HLT pump Triac/SSR */
 
 //-----------------------------
 // E-brew System Mode
 //-----------------------------
-#define GAS_MODULATING     (0)
-#define GAS_NON_MODULATING (1)
-#define ELECTRICAL_HEATING (2)
+#define GAS_MODULATING     (0) /* Modulating gas-valve */
+#define GAS_NON_MODULATING (1) /* Non-modulating gas-valve */
+#define ELECTRICAL_HEATING (2) /* Electrical heating */
 
 //-----------------------------
 // Buzer STD modes

@@ -24,10 +24,10 @@ extern uint8_t    gas_non_mod_llimit;
 extern uint8_t    gas_non_mod_hlimit;
 extern uint8_t    gas_mod_pwm_llimit;
 extern uint8_t    gas_mod_pwm_hlimit;
-extern uint8_t    btmr_on_val;          // ON-timer  for PWM to Time-Division Boil-kettle
-extern uint8_t    btmr_off_val;         // OFF-timer for PWM to Time-Division Boil-kettle
-extern uint8_t    htmr_on_val;          // ON-timer  for PWM to Time-Division HLT
-extern uint8_t    htmr_off_val;         // OFF-timer for PWM to Time-Division HLT
+extern uint8_t    btmr_on_val;         // ON-timer  for PWM to Time-Division Boil-kettle
+extern uint8_t    btmr_off_val;        // OFF-timer for PWM to Time-Division Boil-kettle
+extern uint8_t    htmr_on_val;         // ON-timer  for PWM to Time-Division HLT
+extern uint8_t    htmr_off_val;        // OFF-timer for PWM to Time-Division HLT
 
 extern uint16_t   lm35_temp;           // LM35 Temperature in E-2 °C
 extern uint16_t   triac_llimit;        // Hysteresis lower-limit for triac_too_hot in E-2 °C
@@ -35,19 +35,25 @@ extern uint16_t   triac_hlimit;	       // Hysteresis upper-limit for triac_too_h
 
 //------------------------------------------------------
 // The extension _87 indicates a signed Q8.7 format!
-// This is used for both the HLT and MLT temperatures
+// This is used for all temperature sensors
 //------------------------------------------------------
 extern int16_t    thlt_temp_87;        // THLT Temperature in °C * 128
-extern uint8_t    thlt_err;
+extern uint8_t    thlt_err;			   // 1 = error reading sensor
 
 extern int16_t    tmlt_temp_87;        // TMLT Temperature in °C * 128
-extern uint8_t    tmlt_err;
+extern uint8_t    tmlt_err;            // 1 = error reading sensor
 
 extern int16_t    tcfc_temp_87;        // TCFC Temperature in °C * 128
-extern uint8_t    tcfc_err;
+extern uint8_t    tcfc_err;            // 1 = error reading sensor
 
-extern int16_t    tboil_temp_87;        // TBOIL Temperature in °C * 128
-extern uint8_t    tboil_err;
+extern int16_t    tboil_temp_87;       // TBOIL Temperature in °C * 128
+extern uint8_t    tboil_err;           // 1 = error reading sensor
+
+extern int16_t    thlt_ow_87;          // THLT Temperature in °C * 128
+extern uint8_t    thlt_ow_err;         // 1 = error reading sensor
+
+extern int16_t    tmlt_ow_87;          // TMLT Temperature in °C * 128
+extern uint8_t    tmlt_ow_err;         // 1 = error reading sensor
 
 extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
 extern unsigned long flow_mlt_boil;    // Count from flow-sensor between MLT and boil-kettle
@@ -427,10 +433,12 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				    case 0: // Temperature Processing, send all Temperatures to PC
 							temp = lm35_temp / 100;
 							sprintf(s2,"T=%d.%02d,",temp,lm35_temp-100*temp);   // LM35
-							process_temperatures(thlt_err,s2,thlt_temp_87,0);   // Thlt
-					        process_temperatures(tmlt_err,s2,tmlt_temp_87,0);   // Tmlt
-					        process_temperatures(tboil_err,s2,tboil_temp_87,0); // Tboil
-					        process_temperatures(tcfc_err,s2,tcfc_temp_87,1);   // Tcfc
+							process_temperatures(thlt_err,s2,thlt_temp_87,0);   // Thlt-i2c
+					        process_temperatures(tmlt_err,s2,tmlt_temp_87,0);   // Tmlt-i2c
+					        process_temperatures(tboil_err,s2,tboil_temp_87,0); // Tboil-ow
+					        process_temperatures(tcfc_err,s2,tcfc_temp_87,0);   // Tcfc-ow
+							process_temperatures(thlt_ow_err,s2,thlt_ow_87,0);  // Thlt_ow
+							process_temperatures(tmlt_ow_err,s2,tmlt_ow_87,1);  // Tmlt_ow
 							break;
 					case 9: // FLOW Processing, send all flows to PC
 					        strcpy(s2,"F=");

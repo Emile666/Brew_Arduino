@@ -1,9 +1,8 @@
 /*==================================================================
-  File Name    : $Id$
-  Function name: -
-  Author       : E v.d. Logt
+  File Name    : command_interpreter.h
+  Author       : Emile
   ------------------------------------------------------------------
-  Purpose : HEader file for command_interpreter.c
+  Purpose : Header file for command_interpreter.c
   ------------------------------------------------------------------
   $Log$
   Revision 1.3  2014/05/03 11:27:44  Emile
