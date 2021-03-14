@@ -124,5 +124,6 @@
 
 void    print_ebrew_revision(char *ver);
 uint8_t init_WIZ550IO_module(void);
+void    print_IP_address(uint8_t *ip);
 
 #endif /* _BREW_ARDUINO_H_ */

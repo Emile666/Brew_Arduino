@@ -19,6 +19,7 @@ extern uint8_t      crc8;
 
 extern uint8_t    system_mode;         // from Brew_Arduino.c
 extern bool       ethernet_WIZ550i;
+extern uint8_t    local_ip[4];         // local IP address received from dhcp_begin()
 extern const char *ebrew_revision;     // ebrew CVS revision number
 extern uint8_t    gas_non_mod_llimit; 
 extern uint8_t    gas_non_mod_hlimit;
@@ -520,9 +521,20 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 			   }
 			   else if (num ==2)
 			   {
-				   if (ethernet_WIZ550i)
-				        xputs("ETH mode (E1)\n");
-				   else xputs("USB mode (E0)\n");
+				 if (rs232_udp == ETHERNET_UDP)
+				 {
+					 udp_beginPacketIP(remoteIP, EBREW_PORT_NR); // send response back
+				 } // if
+				 if (ethernet_WIZ550i)
+				 {
+				     sprintf(s2,"ETH mode (E1): %d.%d.%d.%d\n",local_ip[0],local_ip[1],local_ip[2],local_ip[3]);
+				 } // if
+				 else sprintf(s2,"USB mode (E0)\n");
+				 rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+				 if (rs232_udp == ETHERNET_UDP)
+				 {
+					 udp_endPacket(); // send response
+				 } // if
 			   } // else if
 			   else rval = ERR_NUM;
 			   break;

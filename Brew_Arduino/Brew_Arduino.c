@@ -3,6 +3,10 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.38  2021/03/14 11:25:00  Emile
+// - Larger reset times for WIZ550io
+// - E2 command now with IP-address
+//
 // Revision 1.37  2021/01/27 21:44:00  Emile
 // - thlt_ow and tmlt_ow now sent separately to PC
 //
@@ -177,7 +181,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.37 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.38 $"; // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -969,9 +973,9 @@ uint8_t init_WIZ550IO_module(void)
 	//---------------------------------------------------------------
 	DDRB  |=  WIZ550_HW_RESET; // Set HW_RESET pin as output-pin
 	PORTB &= ~WIZ550_HW_RESET; // Active RESET for WIZ550io
-	delay_msec(1);
+	delay_msec(2);             // At least 500 usec according to datasheet
 	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
-	delay_msec(150);           // Giver W5500 time to configure itself
+	delay_msec(300);           // Giver W5500 time to configure itself (at least 150 msec)
 
 	ret = Ethernet_begin();    // includes w5500_init(), spi_init() & dhcp_begin()
 	if (ret == 0)              // Error, no WIZ550IO module found
