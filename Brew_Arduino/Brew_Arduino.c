@@ -3,6 +3,9 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.39  2021/03/14 11:25:00  Emile
+// - Green Alive LED now shows interrupt activity
+//
 // Revision 1.38  2021/03/14 11:25:00  Emile
 // - Larger reset times for WIZ550io
 // - E2 command now with IP-address
@@ -181,7 +184,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.38 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.39 $"; // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -438,9 +441,16 @@ void buzzer(void)
   ------------------------------------------------------------------*/
 ISR(TIMER2_COMPA_vect)
 {
+	static uint16_t gc = 0;
+	
 	t2_millis++;     // update millisecond counter
 	buzzer();        // sound alarm through buzzer
 	scheduler_isr(); // call the ISR routine for the task-scheduler
+	if (++gc > 499)
+	{
+		PORTD ^= ALIVE_LED_G;
+		gc = 0;
+	} // if
 } // ISR()
 
 /*------------------------------------------------------------------
