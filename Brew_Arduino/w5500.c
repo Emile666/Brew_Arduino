@@ -206,7 +206,6 @@ void w5500_init(void)
 	
 	buf[0] = 2; // 2 KB Buffer Size
 	delay_msec(300);
-    spi_init();
     for (i = 0; i < MAX_SOCK_NUM; i++) 
     {
         w5500_write_socket_register(i, Sn_RXBUF_SIZE, buf);

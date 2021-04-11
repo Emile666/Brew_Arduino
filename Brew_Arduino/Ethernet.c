@@ -29,23 +29,22 @@ int Ethernet_begin(void)
   uint8_t mac_address[6] = {0,};
   uint8_t tmp[4] = {0,0,0,0};
   int ret = 0;
-  uint8_t s[30];
+  uint8_t s[25];
   	  
   // Initialize the basic info
-  xputs("w5500_init(): ");
+  xputs("w5500_init():");
   w5500_init();
-  xputs("done\nw5500 write SIPR: ");
   w5500_write_common_register(SIPR,tmp);
-  xputs("done\nw5500 read SHAR: ");
+  xputs("ok\nread SHAR:");
   w5500_read_common_register(SHAR ,mac_address);
-  sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",mac_address[0],mac_address[1],mac_address[2],mac_address[3],mac_address[4],mac_address[5]);
+  sprintf(s,"%02x:%02x:%02x:%02x:%02x:%02x ",mac_address[0],mac_address[1],mac_address[2],mac_address[3],mac_address[4],mac_address[5]);
   xputs(s);
   if (!(mac_address[0] | mac_address[1] | mac_address[2] | mac_address[3] | mac_address[4] | mac_address[5]))
   {
-	   xputs(": WIZ550IO not connected\n");
+	   xputs(": no WIZ550IO\n");
 	   return ret; // 0: error, no WIZ550IO found
   } // if
-  else xputs("\ndhcp_begin(): ");
+  else xputs("\ndhcp_begin:");
   
   // Now try to get our config info from a DHCP server
   ret = dhcp_begin(mac_address);
@@ -57,9 +56,9 @@ int Ethernet_begin(void)
 	w5500_write_common_register(GAR ,dhcpGatewayIp);
 	w5500_write_common_register(SUBR,dhcpSubnetMask); 
 	ipcpy(dnsServerAddress, dhcpDnsServerIp); // save result
-	xputs("1\n");
+	xputs("ok\n");
   } // if
-  else xputs("0, no DHCP\n");
+  else xputs("no DHCP\n");
   return ret;
 } // Ethernet_begin()
 

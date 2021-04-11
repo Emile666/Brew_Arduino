@@ -18,8 +18,8 @@
 
 struct ring_buffer 
 {
-    volatile uint8_t write_offset;
-    volatile uint8_t read_offset;
+    volatile uint8_t write_offset; /* index to 1st empty byte in buffer */
+    volatile uint8_t read_offset;  /* index to 1st byte to read from buffer */
     uint8_t          size;
     uint8_t          *buffer;
 }; /* ring_buffer */

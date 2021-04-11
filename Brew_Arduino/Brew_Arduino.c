@@ -3,6 +3,8 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.40  2021/04/06 Emile
+//
 // Revision 1.39  2021/03/14 11:25:00  Emile
 // - Green Alive LED now shows interrupt activity
 //
@@ -184,7 +186,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.39 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.40 $"; // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -963,17 +965,16 @@ void print_IP_address(uint8_t *ip)
 	} // for
 } // print_IP_address()
 
-
 /*-----------------------------------------------------------------------
   Purpose  : This function inits the WIZ550i Ethernet module by
-             calling w5500_init() and spi_init(). If a valid MAC address
-			 is detected, then dhcp_begin() is started.
+             calling w5500_init(). If a valid MAC address is detected,
+			 then dhcp_begin() is started.
   Variables: The IP-address to print
   Returns  : 1: success, 0: WIZ550IO not present
   -----------------------------------------------------------------------*/
 uint8_t init_WIZ550IO_module(void)
 {
-	char     s[30];   // Needed for xputs() and sprintf()
+	char     s[25];   // Needed for xputs() and sprintf()
 	uint8_t  bufr[8]; // Needed for w5500_read_common_register()
 	uint8_t  ret,x;
 	uint16_t y;
@@ -987,47 +988,46 @@ uint8_t init_WIZ550IO_module(void)
 	PORTB |=  WIZ550_HW_RESET; // Disable RESET for WIZ550io
 	delay_msec(300);           // Giver W5500 time to configure itself (at least 150 msec)
 
-	ret = Ethernet_begin();    // includes w5500_init(), spi_init() & dhcp_begin()
+	ret = Ethernet_begin();    // includes w5500_init() & dhcp_begin()
 	if (ret == 0)              // Error, no WIZ550IO module found
 	{
 		ethernet_WIZ550i = false;  // No ETH mode, switch back to USB
-	    write_eeprom_parameters(); // save value in eeprom
-		xputs("switching back to USB mode\n");
+		write_eeprom_parameters(); // save value in eeprom
+		xputs("switching to USB mode\n");
 		return 0;
 	} // if	
 	
 	x = udp_begin(EBREW_PORT_NR);           // init. UDP protocol
-	w5500_read_common_register(SHAR, bufr); // get MAC address
-	sprintf(s,"MAC:%02x:%02x:%02x:%02x:%02x:%02x ",bufr[0],bufr[1],bufr[2],bufr[3],bufr[4],bufr[5]);
-	xputs(s);
 	y = w5500_read_common_register(VERSIONR,bufr);
-	sprintf(s,"W5500 VERSIONR: 0x%02x\n",y);          xputs(s);
-	sprintf(s,"udp_begin():%d, sock=%d\n",x,_sock);   xputs(s);
+	sprintf(s,"Version:0x%02x\n",y);                  xputs(s);
+	sprintf(s,"udp_begin:%d,sock=%d\n",x,_sock);      xputs(s);
 	x = w5500_read_socket_register(_sock, Sn_MR, bufr);
-	sprintf(s,"Sn_MR=%d, ",x);                        xputs(s);
+	sprintf(s,"Sn_MR=%d,",x);                         xputs(s);
 	local_port = w5500_read_socket_register(_sock, Sn_PORT, bufr);
-	sprintf(s,"Sn_PORT=%d, ",local_port);			  xputs(s);
+	sprintf(s,"Sn_PORT=%d,",local_port);			  xputs(s);
 	y = w5500_getTXFreeSize(_sock);
-	sprintf(s,"Sn_TXfree=%d, ",y);					  xputs(s);
+	sprintf(s,"Sn_TXfree=%d,",y);					  xputs(s);
 	y = w5500_getRXReceivedSize(_sock);
 	sprintf(s,"Sn_RXrecv=%d\n",y);					  xputs(s);
 	w5500_read_common_register(SIPR, bufr);
-	xputs("Local IP address  :"); print_IP_address(bufr);
+	xputs("Local IP   :"); print_IP_address(bufr);
 	for (x = 0; x < 4; x++) local_ip[x] = bufr[x]; // copy IP address
+	sprintf(s,":%d\n",local_port); // add local port as read back from wiz550io module
+	xputs(s);
 	w5500_read_common_register(GAR, bufr);
-	xputs("\nGateway IP address:"); print_IP_address(bufr);
+	xputs("Gateway IP :"); print_IP_address(bufr);
 	w5500_read_common_register(SUBR, bufr);
-	xputs("\nSubnet Mask       :"); print_IP_address(bufr);	
+	xputs("\nSubnet Mask:"); print_IP_address(bufr);	
 	xputs("\n");
 	return 1; // success
 } // init_WIZ550IO_module()
 
-//int freeRam (void) 
-//{
-//	extern int __heap_start, *__brkval;
-//	int v;
-//	return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
-//}
+int freeRam (void) 
+{
+	extern int __heap_start, *__brkval;
+	int v;
+	return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
 
 /*------------------------------------------------------------------
   Purpose  : This is the main() function for the E-brew hardware.
@@ -1036,11 +1036,12 @@ uint8_t init_WIZ550IO_module(void)
   ------------------------------------------------------------------*/
 int main(void)
 {
-	char    s[30];     // Needed for xputs() and sprintf()
+	char    s[25];     // Needed for xputs() and sprintf()
 	int	    udp_packet_size;
 	
 	init_hardware();         // Initialize Interrupts and all hardware devices
 	i2c_init(SCL_CLK_50KHZ); // Init. I2C bus, I2C CLK = 50 kHz
+    spi_init();              // Init. SPI-bus 
 	adc_init();              // Init. internal 10-bits AD-Converter
 	pwm_init();              // Init. PWM function
 	pwm_write(PWMB,0);	     // Start with 0 % duty-cycle for Boil-kettle
@@ -1049,6 +1050,10 @@ int main(void)
     check_and_init_eeprom(); // EEPROM init.
 	read_eeprom_parameters();// Read EEPROM value for ETHUSB and delayed-start
 	
+	// Initialize Serial Communication, See usart.h for BAUD
+	// F_CPU should be a Project Define (-DF_CPU=(xxxL)
+	usart_init(MYUBRR); // Initializes the serial communication
+
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
@@ -1067,10 +1072,6 @@ int main(void)
 	thlt_ow_87    = INIT_TEMP << 7;
 	tmlt_ow_87    = INIT_TEMP << 7;
 
-	// Initialize Serial Communication, See usart.h for BAUD
-	// F_CPU should be a Project Define (-DF_CPU=(xxxL)
-	usart_init(MYUBRR); // Initializes the serial communication
-
 	// Initialize all the tasks for the E-Brew system
 	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.
 	add_task(lm35_task ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
@@ -1083,24 +1084,25 @@ int main(void)
 	
 	sei();                      // set global interrupt enable, start task-scheduler
 	if (mcp23017_init())        // Initialize IO-expander for valves (port A output, port B input)
-	{
-		xputs("mcp23017_init() error\n");
+	{   // 1 = error
+		xputs("mcp23017 error\n");
 	} // if
 	
 	if (ethernet_WIZ550i)        // Initialize Ethernet adapter
 	{
 		print_ebrew_revision(s); // print revision number
 		xputs(s);				 // Output to COM-port for debugging
-		xputs("init_wiz550io_module()\n");
-		init_WIZ550IO_module();
-		xputs("starting main()   :");
-		print_IP_address(local_ip);
-		sprintf(s,":%d\n",local_port); // add local port as read back from wiz550io module
-		xputs(s);
-		bz_rpt_max = 1; // Sound buzzer once to indicate ethernet connection ready
-		bz_on      = true;
+		sprintf(s,"Free RAM:%d bytes\n",freeRam());
+		xputs(s);                    // print amount of free RAM
+		xputs("init wiz550io:\n");
+		if (init_WIZ550IO_module())
+		{   // 1 = ok, DHCP-server found
+			bz_rpt_max = 1; // Sound buzzer once to indicate ethernet connection ready
+			bz_on      = true;
+		} // if
+		xputs("starting main()\n");
 	} // if
-		
+
     while(1)
     {
 	    dispatch_tasks(); // run the task-scheduler
@@ -1122,7 +1124,6 @@ int main(void)
 				udp_rcv_buf[udp_packet_size] = '\0';
 				ethernet_command_handler((char *)udp_rcv_buf);
 			} // if	
-			//delay_msec(10);	
 		} // if
     } // while()
 } // main()

@@ -85,8 +85,8 @@ void usart_init(unsigned int ubrr)
    // 8-bit, 1 stop bit, no parity, asynchronous UART
    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00) | (0 << USBS0)  |
    (0 << UPM01)  | (0 << UPM00)  | (0 << UMSEL01)| (0 << UMSEL00);
-   
-   // initialize the in and out buffer for the UART
+
+   // initialize in- and out-buffer for the UART
    ring_buffer_out = ring_buffer_init(out_buffer, TX_BUF_SIZE);
    ring_buffer_in  = ring_buffer_init(in_buffer , RX_BUF_SIZE);
 } // usart_init()
@@ -99,8 +99,12 @@ void usart_init(unsigned int ubrr)
   ------------------------------------------------------------------*/
 void usart_putc(unsigned char data )
 {
-	// At 19200 Baud, sending 1 byte takes a max. of 0.52 msec.
-	while (ring_buffer_is_full(&ring_buffer_out)) delay_msec(1);
+	// At 38400 Baud, sending 1 byte takes a max. of 0.26 msec.
+	while (ring_buffer_is_full(&ring_buffer_out)) 
+	{
+		UCSR0B |= (1 << UDRIE0); // make sure interrupt is enabled
+		delay_msec(1);           // Give interrupt time to send buffer
+	};			
 	cli(); // Disable interrupts to get exclusive access to ring_buffer_out
 	if (ring_buffer_is_empty(&ring_buffer_out))
 	{

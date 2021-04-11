@@ -19,7 +19,7 @@ extern uint8_t      crc8;
 
 extern uint8_t    system_mode;         // from Brew_Arduino.c
 extern bool       ethernet_WIZ550i;
-extern uint8_t    local_ip[4];         // local IP address received from dhcp_begin()
+extern uint8_t    local_ip[];          // local IP address received from dhcp_begin()
 extern const char *ebrew_revision;     // ebrew CVS revision number
 extern uint8_t    gas_non_mod_llimit; 
 extern uint8_t    gas_non_mod_hlimit;
@@ -80,7 +80,7 @@ uint8_t rs232_ptr = 0;                 // index in RS232 buffer
   ---------------------------------------------------------------------------*/
 void i2c_scan(uint8_t ch, bool rs232_udp)
 {
-	char    s[50]; // needed for printing to serial terminal
+	char    s[30]; // needed for printing to serial terminal
 	uint8_t x = 0;
 	int     i;     // Leave this as an int!
 	const uint8_t none[] = "-";
@@ -137,7 +137,9 @@ uint8_t rs232_command_handler(void)
 		           rs232_inbuf[rs232_ptr] = '\0';
 		           rs232_ptr = 0;
 				   break;
-		default  : rs232_inbuf[rs232_ptr++] = ch;
+		default  : if (rs232_ptr < USART_BUFLEN-1)
+					    rs232_inbuf[rs232_ptr++] = ch;
+				   else rs232_ptr = 0; // remove inputs	
 				   break;
 	} // switch
   } // if

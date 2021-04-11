@@ -13,7 +13,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#define USART_BUFLEN (20)
+#define USART_BUFLEN (10) /* UART buflen for incoming commands */
 // Error at 38400 Baud is only 0.2 %
 #define BAUD         (38400)
 #define MYUBRR       (((((F_CPU * 10) / (16L * BAUD)) + 5) / 10) - 1)
