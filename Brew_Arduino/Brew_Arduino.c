@@ -4,6 +4,11 @@
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
 // Revision 1.40  2021/04/06 Emile
+// - Startup problem in ETH mode solved. This was due to an out-of-RAM problem,
+// 
+// Revision 1.40  2021/04/06 Emile
+// - Startup problem in ETH mode solved. This was due to an out-of-RAM problem,
+//   causing buffer overflows.
 //
 // Revision 1.39  2021/03/14 11:25:00  Emile
 // - Green Alive LED now shows interrupt activity
@@ -186,7 +191,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.40 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.41 $"; // ebrew CVS revision number
 uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
 bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
 
@@ -992,8 +997,8 @@ uint8_t init_WIZ550IO_module(void)
 	if (ret == 0)              // Error, no WIZ550IO module found
 	{
 		ethernet_WIZ550i = false;  // No ETH mode, switch back to USB
-		write_eeprom_parameters(); // save value in eeprom
-		xputs("switching to USB mode\n");
+		//write_eeprom_parameters(); // save value in eeprom
+		//xputs("switching to USB mode\n");
 		return 0;
 	} // if	
 	
@@ -1057,13 +1062,13 @@ int main(void)
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
-	init_moving_average(&lm35_ma,10   , (float)INIT_TEMP * 100.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&thlt_ma,10   , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tmlt_ma,10   , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tcfc_ma,10   , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tboil_ma,10  , (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&thlt_ow_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
-	init_moving_average(&tmlt_ow_ma,10, (float)INIT_TEMP * 128.0); // Init. MA10-filter with 20 °C
+	init_moving_average(&lm35_ma   ,8, (float)INIT_TEMP * 100.0); // Init. MA-filter with 20 °C
+	init_moving_average(&thlt_ma   ,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tmlt_ma   ,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tcfc_ma   ,5, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tboil_ma  ,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&thlt_ow_ma,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tmlt_ow_ma,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
 	lm35_temp     = INIT_TEMP * 100;
 	thlt_temp_87  = INIT_TEMP << 7;
 	tmlt_temp_87  = INIT_TEMP << 7;
