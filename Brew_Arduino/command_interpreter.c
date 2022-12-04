@@ -25,10 +25,10 @@ extern uint8_t    gas_non_mod_llimit;
 extern uint8_t    gas_non_mod_hlimit;
 extern uint8_t    gas_mod_pwm_llimit;
 extern uint8_t    gas_mod_pwm_hlimit;
-extern uint8_t    btmr_on_val;         // ON-timer  for PWM to Time-Division Boil-kettle
-extern uint8_t    btmr_off_val;        // OFF-timer for PWM to Time-Division Boil-kettle
-extern uint8_t    htmr_on_val;         // ON-timer  for PWM to Time-Division HLT
-extern uint8_t    htmr_off_val;        // OFF-timer for PWM to Time-Division HLT
+
+extern uint8_t    hlt_elec_pwm;        // PWM signal (0-100 %) for HLT Electrical Heating
+extern pwmtime    pwmhlt1;             // Struct for HLT Electrical Heater 1 Slow SSR signal
+extern pwmtime    pwmhlt2;             // Struct for HLT Electrical Heater 1 Slow SSR signal
 
 extern uint16_t   lm35_temp;           // LM35 Temperature in E-2 °C
 extern uint16_t   triac_llimit;        // Hysteresis lower-limit for triac_too_hot in E-2 °C
@@ -187,12 +187,8 @@ uint8_t set_parameter(uint8_t num, uint16_t val)
 	
 	switch (num)
 	{
-		case 0:  // Ebrew System-Mode
-				if (val > 2) rval = ERR_NUM;
-				else 
-				{   // [GAS_MODULATING, GAS_NON_MODULATING, ELECTRICAL_HEATING]
-					system_mode = val;
-				} // else
+		case 0: // Ebrew System-Mode
+				system_mode = val;
 				break;
 		case 1:  // non-modulating gas valve: hysteresis lower-limit [%]
 				gas_non_mod_llimit = val;
@@ -260,75 +256,75 @@ void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val)
 	{   // boil-kettle PWM
 		mod_mask  = BOIL_230V;
 		nmod_mask = BOIL_NMOD;
-	}
+	} // if
 	else
 	{   // HLT PWM
 		mod_mask  = HLT_230V;
 		nmod_mask = HLT_NMOD;
 	} // else
+
+	//----------------------------------------------------------------
+    // Modulating Gas-burner: create an 230V ON/OFF signal to enable
+	// the gas-burner and generate a 25 kHz PWM signal with a timer.
+	//----------------------------------------------------------------
+	if (system_mode | (GAS_MODULATING_BK | GAS_MODULATING_HLT))
+	{	// Modulating gas-burner
+		if (portb & mod_mask)
+		{   // 230V-signal is ON
+			if (pwm_val < gas_mod_pwm_llimit)
+			{   // set 230V-signal off
+				portb &= ~mod_mask;
+			} // if
+			// else do nothing (hysteresis)
+		} // if
+		else
+		{	 // 230V-signal is OFF					 
+			if (pwm_val > gas_mod_pwm_hlimit)
+			{   // set 230V-signal on
+				portb |= mod_mask;
+			} // if
+			// else do nothing (hysteresis)
+		} // else
+		pwm_write(pwm_ch, pwm_val);  // write PWM value to Timer register
+	} // if			
+    
+	//----------------------------------------------------------------
+	// Non-modulating Gas-burner: create a 24Vac ON/OFF signal to 
+	// enable the gas-burner with ON/OFF control.
+	//----------------------------------------------------------------
+	if (system_mode | (GAS_NON_MODULATING_BK | GAS_NON_MODULATING_HLT))			
+	{   // Non-Modulating gas-burner
+		if (portb & nmod_mask)
+		{   // 24V-relay is ON
+			if (pwm_val < gas_non_mod_llimit)
+			{   // set RELAY off
+				portb &= ~nmod_mask;
+			} // if
+			// else do nothing (hysteresis)
+		} // if
+		else
+		{	 // 24V-relay is OFF
+			if (pwm_val > gas_non_mod_hlimit)
+			{   // set RELAY on
+				portb |= nmod_mask;
+			} // if
+			// else do nothing (hysteresis)
+		} // else
+	} // if		
+	mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
 	
-	switch (system_mode)
-	{
-		case GAS_MODULATING: // Modulating gas-burner
-							 if (portb & mod_mask)
-							 {   // 230V-signal is ON
-								 if (pwm_val < gas_mod_pwm_llimit)
-								 {   // set 230V-signal off
-									 portb &= ~mod_mask;
-								 } // if
-								 // else do nothing (hysteresis)
-							 } // if
-							 else
-							 {	 // 230V-signal is OFF					 
-								 if (pwm_val > gas_mod_pwm_hlimit)
-								 {   // set 230V-signal on
-									 portb |= mod_mask;
-								 } // if
-								 // else do nothing (hysteresis)
-							 } // else
-							 pwm_write(pwm_ch, pwm_val);  // write PWM value to Timer register
-							 mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
-		                     break;
-							 
-		case GAS_NON_MODULATING: // Non-Modulating gas-burner
-							 if (portb & nmod_mask)
-							 {   // 24V-relay is ON
-								 if (pwm_val < gas_non_mod_llimit)
-								 {   // set RELAY off
-									 portb &= ~nmod_mask;
-								 } // if
-								 // else do nothing (hysteresis)
-							 } // if
-							 else
-							 {	 // 24V-relay is OFF
-								 if (pwm_val > gas_non_mod_hlimit)
-								 {   // set RELAY on
-									 portb |= nmod_mask;
-								 } // if
-								 // else do nothing (hysteresis)
-							 } // else
-							 mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
-		                     break;
-
-		case ELECTRICAL_HEATING: // Electrical heating
-		                     ATOMIC_BLOCK(ATOMIC_FORCEON)
-							 {  // set values for pwm_task() / pwm_2_time()
-								if (pwm_ch == PWMB)
-								{   // boil-kettle PWM
-									btmr_on_val  = pwm_val;
-									btmr_off_val = 100 - btmr_on_val;
-								}
-								else
-								{   // HLT PWM
-									htmr_on_val  = pwm_val;
-									htmr_off_val = 100 - htmr_on_val;
-								} // else																
-							 } 	// ATOMIC_BLOCK						 
-							 break;
-
-		default: // This should not happen
-							 break;
-	} // switch
+	//----------------------------------------------------------------
+	// Electrical Heating (HLT only): send the PWM signal as a 
+	// SLOW SSR signal (T = 5 sec.) to the two HLT heating-elements.
+	//----------------------------------------------------------------
+	if (pwm_ch == PWMH)
+	{	// Only HLT has electrical heating
+		if (system_mode | ELECTRICAL_HEATING_HLT)
+		{   // Electrical heating HLT
+			hlt_elec_pwm = pwm_val; // set value for pwm_task() / pwm_2_time()
+		} 	// if
+		else hlt_elec_pwm = 0; // disable HLT electrical heaters
+	} // if
 } // process_pwm_signal()
 
 /*-----------------------------------------------------------------------------
@@ -654,8 +650,6 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 			   break;
 				
 	   default: rval = ERR_CMD;
-				sprintf(s2,"ERR.CMD[%s]\n",s);
-				xputs(s2);
 	            break;
    } // switch
    return rval;	

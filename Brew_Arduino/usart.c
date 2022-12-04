@@ -126,7 +126,7 @@ void xputc(unsigned char ch)
 {                       /* Write Character to Serial Port */
   if (ch == '\n')       /* Check for LF */
   {                            
-    //usart_putc('\r');  /* Output CR */
+    usart_putc('\r');  /* Output CR */
   }
   usart_putc(ch); /* Transmit Character */
 } // xputc()

@@ -43,7 +43,6 @@
 #include "scheduler.h"
 #include "eep.h"
 
-
 //---------------------------------
 // Defines for WIZ550IO ETH module
 //---------------------------------
@@ -67,19 +66,41 @@
 //-----------------------------
 // PORTB of MCP23017 defines
 //-----------------------------
-#define HLT_NMOD   (0x01) /* On/Off non-modulating HLT gas-valve 230V */
-#define HLT_230V   (0x02) /* On/Off control modulating HLT gas-valve 230V  or slow SSR signal electrical heating*/
-#define BOIL_NMOD  (0x04) /* On/Off non-modulating BK gas-valve 230V */
-#define BOIL_230V  (0x08) /* On/Off control modulating gas-valve 230V or slow SSR signal electrical heating */
-#define PUMP_230V  (0x10) /* Main pump Triac/SSR */
-#define PUMP2_230V (0x20) /* HLT pump Triac/SSR */
+#define HLT_NMOD     (0x01) /* On/Off non-modulating HLT gas-valve 24Vac */
+#define HLT_230V     (0x02) /* On/Off control modulating HLT gas-valve 230V */
+#define BOIL_NMOD    (0x04) /* On/Off non-modulating BK gas-valve 24Vac */
+#define BOIL_230V    (0x08) /* On/Off control modulating gas-valve 230V */
+#define PUMP_230V    (0x10) /* On/Off Main pump Triac/SSR */
+#define PUMP2_230V   (0x20) /* On/Off HLT pump Triac/SSR */
+#define HLT_EH1_230V (0x40) /* Slow SSR signal HLT Electrical Heater 1 */
+#define HLT_EH2_230V (0x80) /* Slow SSR signal HLT Electrical Heater 2 */
 
+#define ON1ST        (true) /* Create PWM signal by starting with 1 signal */
+#define OFF1ST      (false) /* Create PWM signal by starting with 0 signal */
+
+typedef struct _pwmtime
+{
+	uint8_t std;      // STD state number
+	uint8_t ltimer;   // actual value of low-timer
+	uint8_t htimer;   // actual value of high-timer
+	uint8_t mask;     // port mask of MCP23017 Port B pin
+	bool    on1st;    // true = make 1 first, false = make 0 first
+} pwmtime;
+	
 //-----------------------------
 // E-brew System Mode
 //-----------------------------
-#define GAS_MODULATING     (0) /* Modulating gas-valve */
-#define GAS_NON_MODULATING (1) /* Non-modulating gas-valve */
-#define ELECTRICAL_HEATING (2) /* Electrical heating */
+#define GAS_MODULATING_HLT     (0x01) /* HLT modulating gas-valve */
+#define GAS_MODULATING_BK      (0x02) /* Boil-kettle modulating gas-valve */
+#define GAS_NON_MODULATING_HLT (0x04) /* HLT Non-modulating gas-valve */
+#define GAS_NON_MODULATING_BK  (0x08) /* Boil-kettle non-modulating gas-valve */
+#define ELECTRICAL_HEATING_HLT (0x10) /* Electrical heating-element 1 HLT */
+
+//------------------------------------------------------------------------
+// Select GAS_MODULATING for both HLT and Boil-kettle as default setting.
+// Also enable two electrical heating elements for the HLT.
+//------------------------------------------------------------------------
+#define SYSTEM_MODE (GAS_MODULATING_HLT | GAS_MODULATING_BK | ELECTRICAL_HEATING_HLT)
 
 //-----------------------------
 // Buzer STD modes
@@ -122,6 +143,8 @@
 #define FLOW_PER_L     (330)
 #define FLOW_ROUND_OFF (FLOW_PER_L>>1)
 
+void    init_pwm_time(pwmtime *p, uint8_t mask, bool on1st);
+void    pwm_2_time(pwmtime *p, uint8_t cntr);
 void    print_ebrew_revision(char *ver);
 uint8_t init_WIZ550IO_module(void);
 void    print_IP_address(uint8_t *ip);

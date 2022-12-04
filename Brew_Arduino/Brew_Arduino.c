@@ -3,8 +3,13 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
-// Revision 1.40  2021/04/06 Emile
-// - Startup problem in ETH mode solved. This was due to an out-of-RAM problem,
+// Revision 1.42  2022/12/03 Emile
+// - Electrical heating elements 1 and 2 functionality added. They can be used
+//   in conjunction with the modulating gas valves.
+//
+// Revision 1.41  2021/08/01 Emile
+// - Order of MA-filters for temperature reduced, Tcfc is reduced from 10 to 5, 
+//   others from 10 to 8.
 // 
 // Revision 1.40  2021/04/06 Emile
 // - Startup problem in ETH mode solved. This was due to an out-of-RAM problem,
@@ -191,9 +196,9 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.41 $"; // ebrew CVS revision number
-uint8_t      system_mode      = GAS_MODULATING; // Default to Modulating Gas-valve
-bool         ethernet_WIZ550i = false;		    // Default to No WIZ550i present
+const char  *ebrew_revision   = "$Revision: 1.42 $"; // ebrew CVS revision number
+uint8_t      system_mode      = SYSTEM_MODE;         // Default to Modulating Gas-valves and 2 x HLT electrical heating
+bool         ethernet_WIZ550i = false;		         // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
 extern uint8_t  remoteIP[4]; // remote IP address for the incoming packet whilst it's being processed 
@@ -217,10 +222,9 @@ uint8_t  gas_non_mod_hlimit = 35; // Hysteresis upper-limit parameter
 uint8_t  gas_mod_pwm_llimit = 2;  // Modulating gas-valve Hysteresis lower-limit parameter
 uint8_t  gas_mod_pwm_hlimit = 4;  // Modulating gas-valve Hysteresis upper-limit parameter
 
-uint8_t    btmr_on_val  = 0;        // ON-timer  for PWM to Time-Division Boil-kettle
-uint8_t    btmr_off_val = 0;        // OFF-timer for PWM to Time-Division Boil-kettle
-uint8_t    htmr_on_val  = 0;        // ON-timer  for PWM to Time-Division HLT
-uint8_t    htmr_off_val = 0;        // OFF-timer for PWM to Time-Division HLT
+uint8_t  hlt_elec_pwm = 0;        // PWM signal (0-100 %) for HLT Electrical Heating
+pwmtime  pwmhlt1;                 // Struct for HLT Electrical Heater 1 Slow SSR signal
+pwmtime  pwmhlt2;                 // Struct for HLT Electrical Heater 1 Slow SSR signal
 
 //-----------------------------------
 // LM35 parameters and variables
@@ -524,96 +528,102 @@ void delay_msec(uint16_t ms)
 	while ((millis() - start) < ms) ;
 } // delay_msec()
 
+/*------------------------------------------------------------------
+  Purpose  : This function initializes the pwm_2_time structs that
+             are used for the HLT electrical heating-elements.
+  Variables: 
+          p: pointer to struct to initialize
+	   mask: PORT B IO pin mask of MCP23017 IC
+	  on1st: phase of PWM signal, true = 1 first, false = 0 first
+  Returns  : -
+  ------------------------------------------------------------------*/
+void init_pwm_time(pwmtime *p, uint8_t mask, bool on1st)
+{
+	p->std    = IDLE;
+	p->mask   = mask;
+	p->htimer = 0;
+	p->ltimer = 0;
+	p->on1st  = on1st;
+} // init_pwm_time()
+
 /*-----------------------------------------------------------------------------
   Purpose  : Converts a PWM signal into a time-division signal of 100 * 50 msec.
              This routine should be called from the timer-interrupt every 50 msec.
-			 It uses the tmr_on_val and tmr_off_val values which were set by the
-			 process_pwm_signal. If Electrical Heating (with a heating element)
-			 is NOT enabled, this routine returns immediately without doing 
-			 anything. Called by pwm_task().
-  Variables: std_td     : the STD state number
-			 htimer     : the ON-timer
-			 ltimer     : the OFF-timer
-             tmr_on_val : the ON-time value
-             tmr_off_val: the OFF-time value
+			 It uses the hlt_elec_pwm value which is set by the
+			 process_pwm_signal, called by pwm_task().
+  Variables: p: pointer to pwmtime struct. There are 2 struct, one for each
+                HLT electrical heating-element.
+  hlt_elec_pwm: this is a global var. and set by process_pwm_signal()
+			    after a Hxx command. Both heating-elements get the same PWM.
+		  cntr: time-division counter, counts from 0 to 99 and back again.
   Returns  : -
   ---------------------------------------------------------------------------*/
-void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_on_val, uint8_t tmr_off_val, uint8_t mask)
+void pwm_2_time(pwmtime *p, uint8_t cntr)
 {
 	uint8_t portb = mcp23017_read(GPIOB);
-
-	switch (*std_td)
+	
+	switch (p->std)
 	{
 		case IDLE:
 			//-------------------------------------------------------------
 			// This is the default state after power-up. Main function
 			// of this state is to initialize the electrical heater states.
 			//-------------------------------------------------------------
-			portb  &= ~mask;       // set electrical heater OFF
-			*ltimer = tmr_off_val; // init. low-timer
-			*std_td = EL_HTR_OFF;  // goto OFF-state
+			portb  &= ~p->mask;             // set electrical heater OFF
+			p->htimer = hlt_elec_pwm;       // init. high-timer
+			p->ltimer = 100 - hlt_elec_pwm; // init. low-timer
+			if (!triac_too_hot && (hlt_elec_pwm > 0) && (cntr == 0))
+			{   
+				if (p->on1st)
+				     p->std = EL_HTR_ON;  // goto ON-state
+			    else p->std = EL_HTR_OFF; // goto OFF-state
+			} // if
 			break;
 
 		case EL_HTR_OFF:
-			//---------------------------------------------------------
-			// Goto ON-state if timeout_ltimer && !triac_too_hot &&
-			//      !0%_gamma
-			//---------------------------------------------------------
-			if (*ltimer == 0)
-			{  // OFF-timer has counted down
-				if (tmr_on_val == 0)
-				{   // indication for 0%, remain in this state
-					*ltimer = tmr_off_val; // init. timer again
-					portb  &= ~mask;       // set electrical heater OFF
-				} // if
-				else if (!triac_too_hot)
-				{
-					portb  |= mask;       // set electrical heater ON
-					*htimer = tmr_on_val; // init. high-timer
-					*std_td = EL_HTR_ON;  // go to ON-state
-				} // else if
-				// Remain in this state if timeout && !0% && triac_too_hot
-			} // if
-			else
-			{   // timer has not counted down yet, continue
-				portb &= ~mask;  // set electrical heater OFF
-				*ltimer--;       // decrement low-timer
-			} // else
+			//------------------------------------------------------------
+			// Goto ON-state if timeout_ltimer && !triac_too_hot && pwm>0
+			//------------------------------------------------------------
+			portb &= ~p->mask;  // set electrical heater OFF
+			if (triac_too_hot || (hlt_elec_pwm == 0)) 
+			{
+				p->std = IDLE;
+			} // if				
+			else if (--p->ltimer == 0)
+			{  // OFF-timer has counted down and PWM value > 0
+			   p->htimer = hlt_elec_pwm; // init. high-timer
+			   p->std    = EL_HTR_ON;    // go to ON-state
+			} // else if
+			// else: no time-out yet, continue in this state
 			break;
 
 		case EL_HTR_ON:
 			//---------------------------------------------------------
-			// Goto OFF-state if triac_too_hot OR 
-			//      (timeout_htimer && !100%_gamma)
+			// Goto OFF-state if timeout_htimer && pwm<100 && pwm>0 
 			//---------------------------------------------------------
-			if (triac_too_hot)
+			portb  |= p->mask;       // set electrical heater ON
+			if (triac_too_hot || (hlt_elec_pwm == 0))
 			{
-				portb  &= ~mask;       // set electrical heater OFF
-				*ltimer = tmr_off_val; // init. low-timer
-				*std_td = EL_HTR_OFF;  // go to 'OFF' state
+				p->std = IDLE;
 			} // if
-			else if (*htimer == 0)
+			else if (--p->htimer == 0)
 			{   // timer has counted down
-				if (tmr_off_val == 0)
+				if (hlt_elec_pwm == 100)
 				{  // indication for 100%, remain in this state
-					*htimer = tmr_on_val; // init. high-timer again
-					portb  |= mask;       // set electrical heater ON
+					p->htimer = 100; // init. high-timer again
 				} // if
 				else
-				{   // tmr_off_val > 0
-					portb  &= ~mask;       // set electrical heater OFF
-					*ltimer = tmr_off_val; // init. low-timer
-					*std_td = EL_HTR_OFF;  // go to 'OFF' state
+				{   // hlt_elec_pwm > 0 && < 100
+					p->ltimer = 100 - hlt_elec_pwm; // init. low-timer
+					p->std = EL_HTR_OFF;            // go to 'OFF' state
 				} // else
 			} // if
-			else
-			{  // timer has not counted down yet, continue
-				portb  |= mask; // set electrical heater ON
-				*htimer--;      // decrement high-timer
-			} // else
+			// else: no time-out yet, continue in this state
 			break;
 
-		default: break;	
+		default: 
+		    p->std = IDLE;
+		    break;	
 	} // switch 
 	mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
 } // pwm_2_time()
@@ -621,26 +631,19 @@ void pwm_2_time(uint8_t *std_td, uint8_t *htimer, uint8_t *ltimer, uint8_t tmr_o
 /*-----------------------------------------------------------------------------
   Purpose  : This task converts a PWM signal into a time-division signal of 
              100 * 50 msec. This routine should be called from the timer-interrupt 
-			 every 50 msec. It uses the tmr_on_val and tmr_off_val values which 
-			 were set by the process_pwm_signal and is only executed when
-			 Electrical Heating (with a heating element) is enabled.
+			 every 50 msec. It uses the hlt_elec_pwm value which was set
+ 			 by the process_pwm_signal(). This variable will only get a non-zero
+			 number when HLT Electrical Heating is enabled.
   Variables: - 
   Returns  : -
   ---------------------------------------------------------------------------*/
 void pwm_task(void)
 {
-   static uint8_t stdb  = IDLE; // STD number for Boil
-   static uint8_t stdh  = IDLE; // STD number for HLT
-   static uint8_t htmrb = 0;    // The ON-timer for Boil
-   static uint8_t ltmrb = 0;    // The OFF-timer for Boil
-   static uint8_t htmrh = 0;    // The ON-timer for HLT
-   static uint8_t ltmrh = 0;    // The OFF-timer for HLT
-	
-   if (system_mode == ELECTRICAL_HEATING)
-   {    // only run STD when ELECTRICAL HEATING is enabled
-		pwm_2_time(&stdb, &htmrb, &ltmrb, btmr_on_val, btmr_off_val, BOIL_230V);	
-		pwm_2_time(&stdh, &htmrh, &ltmrh, htmr_on_val, htmr_off_val, HLT_230V);
-   } // if
+   static uint8_t cntr = 0; // time-division counter
+   	
+   pwm_2_time(&pwmhlt1,cntr); // HLT heating-element 1
+   pwm_2_time(&pwmhlt2,cntr); // HLT heating-element 2
+   if (++cntr >= 100) cntr = 0;
 } // pwm_task()
 
 /*--------------------------------------------------------------------
@@ -997,8 +1000,6 @@ uint8_t init_WIZ550IO_module(void)
 	if (ret == 0)              // Error, no WIZ550IO module found
 	{
 		ethernet_WIZ550i = false;  // No ETH mode, switch back to USB
-		//write_eeprom_parameters(); // save value in eeprom
-		//xputs("switching to USB mode\n");
 		return 0;
 	} // if	
 	
@@ -1076,6 +1077,9 @@ int main(void)
 	tboil_temp_87 = INIT_TEMP << 7;
 	thlt_ow_87    = INIT_TEMP << 7;
 	tmlt_ow_87    = INIT_TEMP << 7;
+	
+	init_pwm_time(&pwmhlt1,HLT_EH1_230V,ON1ST);  // HLT Electrical Heating element 1
+	init_pwm_time(&pwmhlt2,HLT_EH2_230V,OFF1ST); // HLT Electrical Heating element 2
 
 	// Initialize all the tasks for the E-Brew system
 	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.
@@ -1105,7 +1109,7 @@ int main(void)
 			bz_rpt_max = 1; // Sound buzzer once to indicate ethernet connection ready
 			bz_on      = true;
 		} // if
-		xputs("starting main()\n");
+		xputs("main()\n");
 	} // if
 
     while(1)
@@ -1113,11 +1117,8 @@ int main(void)
 	    dispatch_tasks(); // run the task-scheduler
 		switch (rs232_command_handler()) // run command handler continuously
 		{
-			case ERR_CMD: xputs("Command Error\n"); break;
-			case ERR_NUM: sprintf(s,"Number Error (%s)\n",rs232_inbuf);
-						  xputs(s);  
-						  break;
-			case ERR_I2C: break; // do not print anything 
+			case ERR_CMD: xputs("Cmd Error\n"); break;
+			case ERR_NUM: xputs("Num Error\n");  break;
 			default     : break;
 		} // switch
 		if (ethernet_WIZ550i) // only true after an E1 command
