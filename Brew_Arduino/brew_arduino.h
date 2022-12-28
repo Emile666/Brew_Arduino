@@ -10,8 +10,8 @@
 //                       Brew Arduino Pin Mapping Arduino NANO
 //
 //                                ----ICSP----
-// Dig.01 (TX)           (TXD) PD1 [01]    [26] VIN
-// Dig.00 (RX)           (RXD) PD0 [02]    [27] GND
+// Dig.00 (TX)           (TXD) PD0 [01]    [30] VIN
+// Dig.01 (RX)           (RXD) PD1 [02]    [29] GND
 //                     (RESET) PC6 [03]    [28] PC6 (RESET) 
 //                             GND [04]    [27] VCC
 // Dig.02 - - -         (INT0) PD2 [05]    [26] PC2 (ADC7)     - - - analog 7
@@ -24,7 +24,7 @@
 // Dig.09 HLT_PWM       (OC1A) PB1 [12]    [19] PC0 (ADC0)     FLOW4 analog 0
 // Dig.10 BOIL_PWM      (OC1B) PB2 [13]    [18] AREF
 // Dig.11 SPI_MOSI  (MOSI/OC2) PB3 [14]    [17] 3V3
-// Dig.12 SPI_MISO      (MISO) PB4 [15]    [16] PB5 (SCK)      SPI_CLK
+// Dig.12 SPI_MISO      (MISO) PB4 [15]    [16] PB5 (SCK)      SPI_CLK Dig.13
 //                               -----USB----
 //                               Arduino NANO
 //-----------------------------------------------------------------------------
@@ -81,26 +81,20 @@
 typedef struct _pwmtime
 {
 	uint8_t std;      // STD state number
-	uint8_t ltimer;   // actual value of low-timer
-	uint8_t htimer;   // actual value of high-timer
 	uint8_t mask;     // port mask of MCP23017 Port B pin
 	bool    on1st;    // true = make 1 first, false = make 0 first
 } pwmtime;
 	
-//-----------------------------
-// E-brew System Mode
-//-----------------------------
-#define GAS_MODULATING_HLT     (0x01) /* HLT modulating gas-valve */
-#define GAS_MODULATING_BK      (0x02) /* Boil-kettle modulating gas-valve */
-#define GAS_NON_MODULATING_HLT (0x04) /* HLT Non-modulating gas-valve */
-#define GAS_NON_MODULATING_BK  (0x08) /* Boil-kettle non-modulating gas-valve */
-#define ELECTRICAL_HEATING_HLT (0x10) /* Electrical heating-element 1 HLT */
-
-//------------------------------------------------------------------------
-// Select GAS_MODULATING for both HLT and Boil-kettle as default setting.
-// Also enable two electrical heating elements for the HLT.
-//------------------------------------------------------------------------
-#define SYSTEM_MODE (GAS_MODULATING_HLT | GAS_MODULATING_BK | ELECTRICAL_HEATING_HLT)
+//-------------------------------------------------------------------
+// These defines are used by the B and H commands and indicate  
+// which energy-sources are used.
+// Note: These defines should be the same as in the PC-program!
+//-------------------------------------------------------------------
+#define GAS_MODU               (0x01) /* Modulating gas-valve */
+#define GAS_ONOFF              (0x02) /* Non-modulating gas-valve */
+#define ELEC_HTR1              (0x04) /* First electric heating-element */
+#define ELEC_HTR2              (0x08) /* Second electric heating-element */
+#define ELEC_HTR3              (0x10) /* Not implemented yet */
 
 //-----------------------------
 // Buzer STD modes
@@ -119,11 +113,11 @@ typedef struct _pwmtime
 #define DEL_START_BURN   (2)
 #define DEL_START_MAX_DELAY_TIME (54000) /* Max. time is 30 hours * 60 minutes * 30 * 2 seconds */
 #define DEL_START_MAX_BURN_TIME   (3600) /* Max. time is 120 minutes * 30 * 2 seconds */
+#define DEL_START_ELEC_PWM          (40) /* PWM signal for HLT electric heaters during delayed start */
 
 //-----------------------------
 // pwm_2_time() States
 //-----------------------------
-#define IDLE       (0)
 #define EL_HTR_OFF (1)
 #define EL_HTR_ON  (2)
 
@@ -144,7 +138,7 @@ typedef struct _pwmtime
 #define FLOW_ROUND_OFF (FLOW_PER_L>>1)
 
 void    init_pwm_time(pwmtime *p, uint8_t mask, bool on1st);
-void    pwm_2_time(pwmtime *p, uint8_t cntr);
+void    pwm_2_time(pwmtime *p, uint8_t cntr, uint8_t pwm);
 void    print_ebrew_revision(char *ver);
 uint8_t init_WIZ550IO_module(void);
 void    print_IP_address(uint8_t *ip);

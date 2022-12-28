@@ -47,7 +47,7 @@
 #include "pwm.h"
 #include "brew_arduino.h"
 
-#define MAX_TASKS	  (9)
+#define MAX_TASKS	  (8)
 #define MAX_MSEC      (60000)
 #define TICKS_PER_SEC (1000L)
 #define NAME_LEN      (12) 

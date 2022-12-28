@@ -3,6 +3,12 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.43  2022/12/27 Emile
+// - B and H commands changed, so that gasburner and electric heating 1 & 2
+//   can be controlled from the PC-program.
+// - N command and set_parameter() function removed.
+// - lm35_task() integrated in Thlt_task().
+//
 // Revision 1.42  2022/12/03 Emile
 // - Electrical heating elements 1 and 2 functionality added. They can be used
 //   in conjunction with the modulating gas valves.
@@ -196,8 +202,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.42 $"; // ebrew CVS revision number
-uint8_t      system_mode      = SYSTEM_MODE;         // Default to Modulating Gas-valves and 2 x HLT electrical heating
+const char  *ebrew_revision   = "$Revision: 1.43 $"; // ebrew CVS revision number
 bool         ethernet_WIZ550i = false;		         // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
@@ -206,34 +211,19 @@ extern uint16_t remotePort;  // remote port for the incoming packet whilst it's 
 extern uint8_t  _sock;       // socket ID for Wiz5100
 unsigned char   udp_rcv_buf[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet]
 
-//---------------------------------------------------------------------------------
-// system_mode == GAS_NON_MODULATING: a hysteresis block is used to determine when
-//                                    the RELAY (that controls the 24 Vac for the 
-//                                    non-modulating gas-burner) is switched on.
-//                                    This happens when PID-Output > Hysteresis.
-//---------------------------------------------------------------------------------
-uint8_t  gas_non_mod_llimit = 30; // Hysteresis lower-limit parameter
-uint8_t  gas_non_mod_hlimit = 35; // Hysteresis upper-limit parameter
-//---------------------------------------------------------------------------------
-// system_mode == GAS_MODULATING:    a hysteresis block is used to determine when
-//                                   the HLT_230V LED and HLT_230V TRIAC is switched on.
-//                                   The TRIAC is needed to energize the gas-valve.
-//---------------------------------------------------------------------------------
-uint8_t  gas_mod_pwm_llimit = 2;  // Modulating gas-valve Hysteresis lower-limit parameter
-uint8_t  gas_mod_pwm_hlimit = 4;  // Modulating gas-valve Hysteresis upper-limit parameter
-
-uint8_t  hlt_elec_pwm = 0;        // PWM signal (0-100 %) for HLT Electrical Heating
-pwmtime  pwmhlt1;                 // Struct for HLT Electrical Heater 1 Slow SSR signal
-pwmtime  pwmhlt2;                 // Struct for HLT Electrical Heater 1 Slow SSR signal
+//-----------------------------------
+// Electric Heating variables
+//-----------------------------------
+uint8_t  hlt_elec1_pwm = 0;       // PWM signal (0-100 %) for HLT Electric Heating 1
+uint8_t  hlt_elec2_pwm = 0;       // PWM signal (0-100 %) for HLT Electric Heating 2
+pwmtime  pwmhlt1;                 // Struct for HLT Electric Heater 1 Slow SSR signal
+pwmtime  pwmhlt2;                 // Struct for HLT Electric Heater 2 Slow SSR signal
 
 //-----------------------------------
 // LM35 parameters and variables
 //-----------------------------------
 ma       lm35_ma;                   // struct for LM35 moving_average filter
 uint16_t lm35_temp;                 // LM35 Temperature in E-2 °C
-uint16_t triac_llimit  = 6500;      // Hysteresis lower-limit for triac_too_hot in E-2 °C
-uint16_t triac_hlimit  = 7500;	    // Hysteresis upper-limit for triac_too_hot in E-2 °C
-uint8_t  triac_too_hot = FALSE;     // 1 = TRIAC temperature (read by LM35) is too high
 
 //------------------------------------------------
 // THLT parameters and variables (I2C)
@@ -365,8 +355,8 @@ void process_delayed_start(void)
 					 delayed_start_std = DEL_START_INIT;
 				 } // if
 				 else 
-				 {		 
-					process_pwm_signal(PWMH,80); // Enable HLT burner with fixed percentage
+				 {	// For delayed start: only enable HLT electric heaters with fixed percentage
+					process_pwm_signal(PWMH,DEL_START_ELEC_PWM,ELEC_HTR1|ELEC_HTR2); 
 				    if (++timer2 >= DEL_START_MAX_BURN_TIME) 
 					{   // Safety feature, set burn-time to max. of 2 hours
 						delayed_start_enable = false; // prevent another burn
@@ -530,7 +520,7 @@ void delay_msec(uint16_t ms)
 
 /*------------------------------------------------------------------
   Purpose  : This function initializes the pwm_2_time structs that
-             are used for the HLT electrical heating-elements.
+             are used for the HLT electric heating-elements.
   Variables: 
           p: pointer to struct to initialize
 	   mask: PORT B IO pin mask of MCP23017 IC
@@ -539,90 +529,61 @@ void delay_msec(uint16_t ms)
   ------------------------------------------------------------------*/
 void init_pwm_time(pwmtime *p, uint8_t mask, bool on1st)
 {
-	p->std    = IDLE;
-	p->mask   = mask;
-	p->htimer = 0;
-	p->ltimer = 0;
-	p->on1st  = on1st;
+	p->std    = EL_HTR_OFF; // default state
+	p->mask   = mask;       // MCP23017 PORTB IO pin mask
+	p->on1st  = on1st;      // true = high first, then low
 } // init_pwm_time()
 
 /*-----------------------------------------------------------------------------
   Purpose  : Converts a PWM signal into a time-division signal of 100 * 50 msec.
-             This routine should be called from the timer-interrupt every 50 msec.
-			 It uses the hlt_elec_pwm value which is set by the
-			 process_pwm_signal, called by pwm_task().
-  Variables: p: pointer to pwmtime struct. There are 2 struct, one for each
-                HLT electrical heating-element.
-  hlt_elec_pwm: this is a global var. and set by process_pwm_signal()
-			    after a Hxx command. Both heating-elements get the same PWM.
-		  cntr: time-division counter, counts from 0 to 99 and back again.
+             This is used to control the electric heating-elements.
+             This routine should be called from pwm_task() every 50 msec.
+			 It uses the pwm values which are set by process_pwm_signal().
+  Variables: p: pointer to pwmtime struct. There are 2 structs, one for each
+                HLT electric heating-element.
+		  cntr: time-division counter, counts from 1 to 100 and back again.
+           pwm: this is PWM signal for the 
   Returns  : -
   ---------------------------------------------------------------------------*/
-void pwm_2_time(pwmtime *p, uint8_t cntr)
+void pwm_2_time(pwmtime *p, uint8_t cntr, uint8_t pwm)
 {
 	uint8_t portb = mcp23017_read(GPIOB);
+	int8_t  bt,et;
 	
+	bt  = p->on1st ? 25 : 75; // time centre-point
+	bt -= (pwm>>1);           // start-time for a 1
+	et  = bt + pwm;           // end-time for a 1
+	if      (bt < 0)   { bt = 0        ; et = pwm; }
+	else if (et > 100) { bt = 100 - pwm; et = 100; }
+
 	switch (p->std)
 	{
-		case IDLE:
-			//-------------------------------------------------------------
-			// This is the default state after power-up. Main function
-			// of this state is to initialize the electrical heater states.
-			//-------------------------------------------------------------
-			portb  &= ~p->mask;             // set electrical heater OFF
-			p->htimer = hlt_elec_pwm;       // init. high-timer
-			p->ltimer = 100 - hlt_elec_pwm; // init. low-timer
-			if (!triac_too_hot && (hlt_elec_pwm > 0) && (cntr == 0))
-			{   
-				if (p->on1st)
-				     p->std = EL_HTR_ON;  // goto ON-state
-			    else p->std = EL_HTR_OFF; // goto OFF-state
-			} // if
-			break;
-
 		case EL_HTR_OFF:
 			//------------------------------------------------------------
-			// Goto ON-state if timeout_ltimer && !triac_too_hot && pwm>0
+			// Goto ON-state if cntr in [bt,et] && pwm>0
 			//------------------------------------------------------------
-			portb &= ~p->mask;  // set electrical heater OFF
-			if (triac_too_hot || (hlt_elec_pwm == 0)) 
-			{
-				p->std = IDLE;
-			} // if				
-			else if (--p->ltimer == 0)
-			{  // OFF-timer has counted down and PWM value > 0
-			   p->htimer = hlt_elec_pwm; // init. high-timer
-			   p->std    = EL_HTR_ON;    // go to ON-state
-			} // else if
-			// else: no time-out yet, continue in this state
+			portb &= ~p->mask;  // set electric heater OFF
+			if ((pwm > 0) && (cntr >= bt) && (cntr < et))
+			{  
+				p->std = EL_HTR_ON; // go to ON-state
+			} // if
+			// else: pwm=0 or outside 1-time, continue in this state
 			break;
 
 		case EL_HTR_ON:
 			//---------------------------------------------------------
-			// Goto OFF-state if timeout_htimer && pwm<100 && pwm>0 
+			// Goto OFF-state if pwm=0 or cntr>et && pwm<100
 			//---------------------------------------------------------
-			portb  |= p->mask;       // set electrical heater ON
-			if (triac_too_hot || (hlt_elec_pwm == 0))
-			{
-				p->std = IDLE;
+			portb  |= p->mask;       // set electric heater ON
+			if ((pwm == 0) || ((cntr >= et) && (pwm < 100)))
+			{   
+				p->std = EL_HTR_OFF;   // go to 'OFF' state
 			} // if
-			else if (--p->htimer == 0)
-			{   // timer has counted down
-				if (hlt_elec_pwm == 100)
-				{  // indication for 100%, remain in this state
-					p->htimer = 100; // init. high-timer again
-				} // if
-				else
-				{   // hlt_elec_pwm > 0 && < 100
-					p->ltimer = 100 - hlt_elec_pwm; // init. low-timer
-					p->std = EL_HTR_OFF;            // go to 'OFF' state
-				} // else
-			} // if
-			// else: no time-out yet, continue in this state
+			// else: pwm>0 && ((cntr < et) || (pwm>=100))
 			break;
 
 		default: 
-		    p->std = IDLE;
+		    p->std = EL_HTR_OFF;
 		    break;	
 	} // switch 
 	mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
@@ -633,66 +594,38 @@ void pwm_2_time(pwmtime *p, uint8_t cntr)
              100 * 50 msec. This routine should be called from the timer-interrupt 
 			 every 50 msec. It uses the hlt_elec_pwm value which was set
  			 by the process_pwm_signal(). This variable will only get a non-zero
-			 number when HLT Electrical Heating is enabled.
+			 number when the corresponding electrical heating-element is enabled.
   Variables: - 
   Returns  : -
   ---------------------------------------------------------------------------*/
 void pwm_task(void)
 {
-   static uint8_t cntr = 0; // time-division counter
+   static uint8_t cntr = 1; // time-division counter
    	
-   pwm_2_time(&pwmhlt1,cntr); // HLT heating-element 1
-   pwm_2_time(&pwmhlt2,cntr); // HLT heating-element 2
-   if (++cntr >= 100) cntr = 0;
+   pwm_2_time(&pwmhlt1,cntr,hlt_elec1_pwm); // HLT heating-element 1
+   pwm_2_time(&pwmhlt2,cntr,hlt_elec2_pwm); // HLT heating-element 2
+   if (++cntr > 100) cntr = 1;
 } // pwm_task()
 
 /*--------------------------------------------------------------------
-  Purpose  : This is the task that processes the temperature from
-             the LM35 temperature sensor. It is called once every 2 seconds.
-			 This sensor is connected to ADC0. The LM35 outputs 10 mV/°C,
-			 VREF=1.1 V, therefore => Max. Temp. = 11000 E-2 °C
-			 Conversion constant = 11000 / 1023 = 10.7526882
-
-			 It also executes the delayed-start function, which will fire the
-			 HLT burner after a number of minutes set by the D0 command.
-
-  Variables: lm35_temp    : contains temperature in E-2 °C
-			 lm35_frac    : contains fractional temperature in E-2 °C
-			 lm35_ma      : moving-average filter struct for lm35_temp
-			 triac_llimit : lower limit (hysteresis) for triac_too_hot
-			 triac_hlimit : upper limit (hysteresis) for triac_too_hot
-             triac_too_hot: is set/reset when the temp. is too high
-  Returns  : -
-  --------------------------------------------------------------------*/
-void lm35_task(void)
-{
-    float tmp; // temporary variable
-	
-	tmp       = adc_read(LM35) * LM35_CONV;
-	lm35_temp = (uint16_t)moving_average(&lm35_ma, tmp);
-	if (triac_too_hot)
-	{  // reset hysteresis if temp < lower limit
-		triac_too_hot = (lm35_temp >= triac_llimit);	
-	} // if
-	else 
-	{  // set hysteresis if temp > upper limit
-		triac_too_hot = (lm35_temp > triac_hlimit);
-	} // else
-    process_delayed_start(); // process delayed-start function
-} // lm35_task()
-
-/*--------------------------------------------------------------------
-  Purpose  : This is the task that processes the temperature from
-             the Hot-Liquid Tun (HLT). The first sensor to read is the
-			 LM92 (I2C sensor). If that one is not present, the DS18B20
-			 (One-Wire sensor) is tried. Since both sensors have 4
-			 fractional bits (1/2, 1/4, 1/8, 1/16), a signed Q8.4 format
-			 would be sufficient. However all variables are stored in a
-			 Q8.7 format for accuracy reasons when filtering. All variables 
-			 with this format have the extension _87.
-			 The HLT temperature is both filtered and slope-limited.
-			 This task is called every 2 seconds and uses the output from
-			 ow_task(), which delivers a new DS18B20 reading every 2 seconds.
+  Purpose  : This task is called every 2 seconds and does the following:
+             1) processes the temperature from the Hot-Liquid Tun (HLT). 
+			    The first sensor to read is the LM92 (I2C sensor). If 
+				that one is not present, the DS18B20 (One-Wire sensor) 
+				is tried. It uses the output from ow_task(), which delivers
+				a new DS18B20 reading every 2 seconds.
+				Since both sensors have 4 fractional bits (1/2, 1/4, 1/8, 1/16), 
+				a signed Q8.4 format would be sufficient. However all variables 
+				are stored in a Q8.7 format for accuracy reasons when filtering. 
+				All variables with this format have the extension _87. The 
+				HLT temperature is both filtered and slope-limited.
+			 2) processes the temperature from the LM35 temperature sensor. 
+			    This sensor is connected to ADC0. The LM35 outputs 10 mV/°C,
+			    VREF=1.1 V, therefore => Max. Temp. = 11000 E-2 °C
+			    Conversion constant = 11000 / 1023 = 10.7526882
+             3) executes the delayed-start function, which will fire the
+			    HLT burner after a number of minutes set by the D0 command.
+			 
   Variables: thlt_old_87   : previous value of thlt_temp_87
 			 temp_slope_87 : the slope-limit: 2 °C/sec.
 			 thlt_err      : 1 = error reading from LM92 (I2C)
@@ -700,11 +633,15 @@ void lm35_task(void)
 			 thlt_ow_87    : Temperature value from DS18B20 (One-Wire)
 			 thlt_ma       : the moving-average filter struct for THLT
 			 thlt_temp_87  : the processed HLT temperature in °C
+             lm35_temp     : contains temperature in E-2 °C
+             lm35_frac     : contains fractional temperature in E-2 °C
+             lm35_ma       : moving-average filter struct for lm35_temp
   Returns  : -
   --------------------------------------------------------------------*/
 void thlt_task(void)
 {
-	int16_t  tmp; // temporary variable (signed Q8.7 format)
+	int16_t tmp;  // temporary variable (signed Q8.7 format)
+    float   tmpf; // temporary variable
 	
 	thlt_old_87 = thlt_temp_87; // copy previous value of thlt_temp
 	tmp         = lm92_read(THLT, &thlt_err); // returns a signed Q8.7 format
@@ -713,6 +650,10 @@ void thlt_task(void)
 		slope_limiter(temp_slope_87, thlt_old_87, &tmp);
 		thlt_temp_87 = (int16_t)(moving_average(&thlt_ma, (float)tmp) + 0.5);
 	} // if
+	
+	tmpf      = adc_read(LM35) * LM35_CONV;
+	lm35_temp = (uint16_t)moving_average(&lm35_ma, tmpf);
+    process_delayed_start(); // process delayed-start function
 } // thlt_task()
 
 /*--------------------------------------------------------------------
@@ -1083,7 +1024,6 @@ int main(void)
 
 	// Initialize all the tasks for the E-Brew system
 	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.
-	add_task(lm35_task ,"lm35_task" , 30, 2000); // Process Temperature from LM35 sensor
 	add_task(owh_task  ,"owh_task"  ,120, 1000); // Process Temperature from DS18B20 HLT sensor
 	add_task(owm_task  ,"owm_task"  ,220, 1000); // Process Temperature from DS18B20 MLT sensor
 	add_task(owb_task  ,"owb_task"  ,320, 1000); // Process Temperature from DS18B20 Boil-kettle sensor
