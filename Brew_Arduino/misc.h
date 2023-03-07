@@ -33,7 +33,7 @@
 
 #include <stdint.h>
 
-#define MAX_MA (8)
+#define MAX_MA (4)
 typedef struct _ma
 {
 	float   T[MAX_MA]; // array with delayed values of input signal

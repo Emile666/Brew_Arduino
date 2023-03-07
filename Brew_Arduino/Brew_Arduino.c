@@ -3,6 +3,9 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.44  2023/02/12 Emile
+// - Order of MA-filters reduced to 4, filters were too slow
+//
 // Revision 1.43  2022/12/27 Emile
 // - B and H commands changed, so that gasburner and electric heating 1 & 2
 //   can be controlled from the PC-program.
@@ -202,7 +205,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.43 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.44 $"; // ebrew CVS revision number
 bool         ethernet_WIZ550i = false;		         // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
@@ -969,12 +972,18 @@ uint8_t init_WIZ550IO_module(void)
 	return 1; // success
 } // init_WIZ550IO_module()
 
+/*------------------------------------------------------------------
+  Purpose  : This function prints the amount of free RAM available.
+             The reported value should not be less than 150 bytes.
+  Variables: The IP-address to print
+  Returns  : -
+  ------------------------------------------------------------------*/
 int freeRam (void) 
 {
 	extern int __heap_start, *__brkval;
 	int v;
 	return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
-}
+} // freeRam()
 
 /*------------------------------------------------------------------
   Purpose  : This is the main() function for the E-brew hardware.
@@ -1004,13 +1013,13 @@ int main(void)
 	//---------------------------------------------------------------
 	// Init. Moving Average Filters for Measurements
 	//---------------------------------------------------------------
-	init_moving_average(&lm35_ma   ,8, (float)INIT_TEMP * 100.0); // Init. MA-filter with 20 °C
-	init_moving_average(&thlt_ma   ,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
-	init_moving_average(&tmlt_ma   ,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
-	init_moving_average(&tcfc_ma   ,5, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
-	init_moving_average(&tboil_ma  ,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
-	init_moving_average(&thlt_ow_ma,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
-	init_moving_average(&tmlt_ow_ma,8, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&lm35_ma   ,MAX_MA, (float)INIT_TEMP * 100.0); // Init. MA-filter with 20 °C
+	init_moving_average(&thlt_ma   ,MAX_MA, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tmlt_ma   ,MAX_MA, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tcfc_ma   ,MAX_MA, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tboil_ma  ,MAX_MA, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&thlt_ow_ma,MAX_MA, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
+	init_moving_average(&tmlt_ow_ma,MAX_MA, (float)INIT_TEMP * 128.0); // Init. MA-filter with 20 °C
 	lm35_temp     = INIT_TEMP * 100;
 	thlt_temp_87  = INIT_TEMP << 7;
 	tmlt_temp_87  = INIT_TEMP << 7;
@@ -1042,11 +1051,11 @@ int main(void)
 		print_ebrew_revision(s); // print revision number
 		xputs(s);				 // Output to COM-port for debugging
 		sprintf(s,"Free RAM:%d bytes\n",freeRam());
-		xputs(s);                    // print amount of free RAM
+		xputs(s);                // Print amount of free RAM
 		xputs("init wiz550io:\n");
 		if (init_WIZ550IO_module())
 		{   // 1 = ok, DHCP-server found
-			bz_rpt_max = 1; // Sound buzzer once to indicate ethernet connection ready
+			bz_rpt_max = 1; // Sound buzzer once to indicate Ethernet connection ready
 			bz_on      = true;
 		} // if
 		xputs("main()\n");
