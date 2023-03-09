@@ -26,6 +26,11 @@ extern uint8_t    hlt_elec2_pwm;       // PWM signal (0-100 %) for HLT Electric 
 extern pwmtime    pwmhlt1;             // Struct for HLT Electrical Heater 1 Slow SSR signal
 extern pwmtime    pwmhlt2;             // Struct for HLT Electrical Heater 1 Slow SSR signal
 
+extern uint8_t    bk_elec1_pwm;        // PWM signal (0-100 %) for Boil-kettle Electric heating-element 1
+extern uint8_t    bk_elec2_pwm;        // PWM signal (0-100 %) for Boil-kettle Electric heating-element 2
+extern pwmtime    pwmbk1;              // Struct for Boil-kettle Electrical Heater 1 Slow SSR signal
+extern pwmtime    pwmbk2;              // Struct for Boil-kettle Electrical Heater 1 Slow SSR signal
+
 extern uint16_t   lm35_temp;           // LM35 Temperature in E-2 °C
 
 //------------------------------------------------------
@@ -261,7 +266,19 @@ void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val, uint8_t enable)
 		} 	// if
 		else hlt_elec2_pwm = 0; // disable electric heater
 	} // if
-	// else {} // Implement this for boil-kettle electric heating
+	else 
+	{ // Boil-kettle: support here for 2 electric heating elements
+		if (enable & ELEC_HTR1)
+		{   // HLT Electric heating-element 1
+			bk_elec1_pwm = pwm_val; // set value for pwm_task() / pwm_2_time()
+		} 	// if
+		else bk_elec1_pwm = 0; // disable electric heater
+		if (enable & ELEC_HTR2)
+		{   // HLT Electric heating-element 2
+			bk_elec2_pwm = pwm_val; // set value for pwm_task() / pwm_2_time()
+		} 	// if
+		else bk_elec2_pwm = 0; // disable electric heater
+	} // else		
 } // process_pwm_signal()
 
 /*-----------------------------------------------------------------------------

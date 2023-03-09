@@ -205,7 +205,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.44 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.45 $"; // ebrew CVS revision number
 bool         ethernet_WIZ550i = false;		         // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
@@ -221,6 +221,11 @@ uint8_t  hlt_elec1_pwm = 0;       // PWM signal (0-100 %) for HLT Electric Heati
 uint8_t  hlt_elec2_pwm = 0;       // PWM signal (0-100 %) for HLT Electric Heating 2
 pwmtime  pwmhlt1;                 // Struct for HLT Electric Heater 1 Slow SSR signal
 pwmtime  pwmhlt2;                 // Struct for HLT Electric Heater 2 Slow SSR signal
+uint8_t  bk_elec1_pwm = 0;        // PWM signal (0-100 %) for Boil-kettle Electric Heating 1
+uint8_t  bk_elec2_pwm = 0;        // PWM signal (0-100 %) for Boil-kettle Electric Heating 2
+pwmtime  pwmbk1;                  // Struct for Boil-kettle Electric Heater 1 Slow SSR signal
+pwmtime  pwmbk2;                  // Struct for Boil-kettle Electric Heater 2 Slow SSR signal
+uint8_t  elec_htrs = 0x00;        // Bit-define for every electrical phase of HLT and BK
 
 //-----------------------------------
 // LM35 parameters and variables
@@ -445,16 +450,9 @@ void buzzer(void)
   ------------------------------------------------------------------*/
 ISR(TIMER2_COMPA_vect)
 {
-	static uint16_t gc = 0;
-	
 	t2_millis++;     // update millisecond counter
 	buzzer();        // sound alarm through buzzer
 	scheduler_isr(); // call the ISR routine for the task-scheduler
-	if (++gc > 499)
-	{
-		PORTD ^= ALIVE_LED_G;
-		gc = 0;
-	} // if
 } // ISR()
 
 /*------------------------------------------------------------------
@@ -526,14 +524,14 @@ void delay_msec(uint16_t ms)
              are used for the HLT electric heating-elements.
   Variables: 
           p: pointer to struct to initialize
-	   mask: PORT B IO pin mask of MCP23017 IC
+	   mask: bit-defines of electric heaters in elec_htrs variable.
 	  on1st: phase of PWM signal, true = 1 first, false = 0 first
   Returns  : -
   ------------------------------------------------------------------*/
 void init_pwm_time(pwmtime *p, uint8_t mask, bool on1st)
 {
 	p->std    = EL_HTR_OFF; // default state
-	p->mask   = mask;       // MCP23017 PORTB IO pin mask
+	p->mask   = mask;       // bit-define for elec_htrs
 	p->on1st  = on1st;      // true = high first, then low
 } // init_pwm_time()
 
@@ -550,10 +548,9 @@ void init_pwm_time(pwmtime *p, uint8_t mask, bool on1st)
   ---------------------------------------------------------------------------*/
 void pwm_2_time(pwmtime *p, uint8_t cntr, uint8_t pwm)
 {
-	uint8_t portb = mcp23017_read(GPIOB);
 	int8_t  bt,et;
 	
-	bt  = p->on1st ? 25 : 75; // time centre-point
+	bt  = p->on1st ? 25 : 75; // time center-point
 	bt -= (pwm>>1);           // start-time for a 1
 	et  = bt + pwm;           // end-time for a 1
 	if      (bt < 0)   { bt = 0        ; et = pwm; }
@@ -565,7 +562,7 @@ void pwm_2_time(pwmtime *p, uint8_t cntr, uint8_t pwm)
 			//------------------------------------------------------------
 			// Goto ON-state if cntr in [bt,et] && pwm>0
 			//------------------------------------------------------------
-			portb &= ~p->mask;  // set electric heater OFF
+			elec_htrs &= ~p->mask;
 			if ((pwm > 0) && (cntr >= bt) && (cntr < et))
 			{  
 				p->std = EL_HTR_ON; // go to ON-state
@@ -577,7 +574,7 @@ void pwm_2_time(pwmtime *p, uint8_t cntr, uint8_t pwm)
 			//---------------------------------------------------------
 			// Goto OFF-state if pwm=0 or cntr>et && pwm<100
 			//---------------------------------------------------------
-			portb  |= p->mask;       // set electric heater ON
+			elec_htrs |= p->mask;       // set electric heater ON
 			if ((pwm == 0) || ((cntr >= et) && (pwm < 100)))
 			{   
 				p->std = EL_HTR_OFF;   // go to 'OFF' state
@@ -589,24 +586,55 @@ void pwm_2_time(pwmtime *p, uint8_t cntr, uint8_t pwm)
 		    p->std = EL_HTR_OFF;
 		    break;	
 	} // switch 
-	mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
 } // pwm_2_time()
 
 /*-----------------------------------------------------------------------------
   Purpose  : This task converts a PWM signal into a time-division signal of 
              100 * 50 msec. This routine should be called from the timer-interrupt 
-			 every 50 msec. It uses the hlt_elec_pwm value which was set
- 			 by the process_pwm_signal(). This variable will only get a non-zero
-			 number when the corresponding electrical heating-element is enabled.
+			 every 50 msec. It uses the hlt_elecx_pwm and bk_elecx_pwm signals 
+			 which were set by the process_pwm_signal(). This variable will only 
+			 get a non-zero number when the corresponding electrical 
+			 heating-element is enabled.
+			 
+			 Priority: the HLT and BK heating-elements can be sourced from the
+			           same outlet. If the BK starts to heat, it may be possible
+					   for the HLT to draw current too. In order to prevent this,
+					   the BK has priority over the HLT. In other words, if the
+					   BK heating-element is energized, the HLT heating-element
+					   on the same outlet is disabled.
   Variables: - 
   Returns  : -
   ---------------------------------------------------------------------------*/
 void pwm_task(void)
 {
    static uint8_t cntr = 1; // time-division counter
-   	
-   pwm_2_time(&pwmhlt1,cntr,hlt_elec1_pwm); // HLT heating-element 1
-   pwm_2_time(&pwmhlt2,cntr,hlt_elec2_pwm); // HLT heating-element 2
+   uint8_t portb = mcp23017_read(GPIOB);
+   
+   pwm_2_time(&pwmbk1 ,cntr,bk_elec1_pwm);   // BK heating-element 1
+   pwm_2_time(&pwmbk2 ,cntr,bk_elec2_pwm);   // BK heating-element 2
+   pwm_2_time(&pwmhlt1,cntr,hlt_elec1_pwm);  // HLT heating-element 1
+   pwm_2_time(&pwmhlt2,cntr,hlt_elec2_pwm);  // HLT heating-element 2
+   // If both heaters of the same phase are on, disable the HLT phase
+   if ((elec_htrs & (HTR_BK1 | HTR_HLT1)) == (HTR_BK1 | HTR_HLT1)) elec_htrs &= ~HTR_HLT1;
+   if ((elec_htrs & (HTR_BK2 | HTR_HLT2)) == (HTR_BK2 | HTR_HLT2)) elec_htrs &= ~HTR_HLT2;
+   if ((elec_htrs & (HTR_BK3 | HTR_HLT3)) == (HTR_BK3 | HTR_HLT3)) elec_htrs &= ~HTR_HLT3;
+   
+   if (elec_htrs & pwmhlt1.mask)
+        portb |=  HLT_EH1_230V; // Enable  HLT heater 1
+   else portb &= ~HLT_EH1_230V; // Disable HLT heater 1
+   if (elec_htrs & pwmhlt2.mask)
+        portb |=  HLT_EH2_230V; // Enable  HLT heater 2
+   else portb &= ~HLT_EH2_230V; // Disable HLT heater 2
+   // HLT electric heater 3 not implemented yet
+   mcp23017_write(GPIOB,portb); // write updated bit-values back to MCP23017 PORTB
+   
+   if (elec_htrs & pwmbk1.mask)
+        PORTD |=  BK_EH1_230V;  // Enable  BK heater 1
+   else PORTD &= ~BK_EH1_230V;  // Disable BK heater 1
+   if (elec_htrs & pwmbk2.mask)
+        PORTD |=  BK_EH2_230V;  // Enable  BK heater 2
+   else PORTD &= ~BK_EH2_230V;  // Disable BK heater 2
+   // BK electric heater 3 not implemented yet
    if (++cntr > 100) cntr = 1;
 } // pwm_task()
 
@@ -860,7 +888,7 @@ void init_hardware(void)
 	DDRC   &= 0xB0; // ADC0/PC0, ADC1/PC1, ADC2/PC2, ADC3/PC3 and ADC6 are inputs
 	PORTC  &= 0xBF; // Disable Pull-up resistor on ADC6 (LM35)
 	PORTC  |= 0x0F; // Enable pull-up resistors on PC3, PC2, PC1 and PC0
-	
+
 	// Init. port C for reading 4 flow-sensor counts
 	PCICR  |= (1<<PCIE1);   // set PCIE1 to enable PCMSK1 scan
 	PCMSK1 |= (1<<PCINT11) | (1<<PCINT10) | (1<<PCINT9) | (1<<PCINT8); // Enable pin change interrupts
@@ -868,8 +896,8 @@ void init_hardware(void)
 	//------------------------------------------------------
 	// Init. Buzzer and Alive_LED outputs
 	//------------------------------------------------------
-	DDRD  |=  (ALIVE_LED_R | ALIVE_LED_G | ALIVE_LED_B | BUZZER); // Set to output
-	PORTD &= ~(ALIVE_LED_R | ALIVE_LED_G | ALIVE_LED_B | BUZZER); // Init. both outputs to 0
+	DDRD  |=  (ALIVE_LED_R | ALIVE_LED_B | BUZZER | BK_EH1_230V | BK_EH2_230V); // Set to output
+	PORTD &= ~(ALIVE_LED_R | ALIVE_LED_B | BUZZER | BK_EH1_230V | BK_EH2_230V); // Init. outputs to 0
 
 	// Set Timer 2 to 1000 Hz interrupt frequency: ISR(TIMER2_COMPA_vect)
 	TCCR2A |= (0x01 << WGM21);    // CTC mode, clear counter on TCNT2 == OCR2A
@@ -1028,8 +1056,10 @@ int main(void)
 	thlt_ow_87    = INIT_TEMP << 7;
 	tmlt_ow_87    = INIT_TEMP << 7;
 	
-	init_pwm_time(&pwmhlt1,HLT_EH1_230V,ON1ST);  // HLT Electrical Heating element 1
-	init_pwm_time(&pwmhlt2,HLT_EH2_230V,OFF1ST); // HLT Electrical Heating element 2
+	init_pwm_time(&pwmhlt1,HTR_HLT1,ON1ST);  // HLT Electric heating element 1
+	init_pwm_time(&pwmhlt2,HTR_HLT2,OFF1ST); // HLT Electric heating element 2
+	init_pwm_time(&pwmbk1 ,HTR_BK1 ,OFF1ST); // BK  Electric heating element 1
+	init_pwm_time(&pwmbk2 ,HTR_BK2 ,ON1ST);  // BK  Electric heating element 2
 
 	// Initialize all the tasks for the E-Brew system
 	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.

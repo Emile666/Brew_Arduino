@@ -12,10 +12,10 @@
 //                                ----ICSP----
 // Dig.00 (TX)           (TXD) PD0 [01]    [30] VIN
 // Dig.01 (RX)           (RXD) PD1 [02]    [29] GND
-//                     (RESET) PC6 [03]    [28] PC6 (RESET) 
+//                     (RESET) PB6 [03]    [28] PB6 (RESET) 
 //                             GND [04]    [27] VCC
-// Dig.02 - - -         (INT0) PD2 [05]    [26] PC2 (ADC7)     - - - analog 7
-// Dig.03 BUZZER        (INT1) PD3 [06]    [25] PC1 (ADC6)     LM35  analog 6
+// Dig.02 BK_EH1        (INT0) PD2 [05]    [26] PC7 (ADC7)     ---   analog 7
+// Dig.03 BUZZER        (INT1) PD3 [06]    [25] PC6 (ADC6)     LM35  analog 6
 // Dig.04 ALIVE_LED_B (XCK/TO) PD4 [07]    [24] PC5 (ADC5/SCL) SCL   analog 5
 // Dig.05 ALIVE_LED_G     (T1) PD5 [08]    [23] PC4 (ADC4/SDA) SDA   analog 4
 // Dig.06 ALIVE_LED_R   (AIN0) PD6 [09]    [22] PC3 (ADC3)     FLOW1 analog 3
@@ -58,10 +58,11 @@
 //-----------------------------
 // PORTD defines
 //-----------------------------
-#define ALIVE_LED_R  (0x40)
-#define ALIVE_LED_G  (0x20)
-#define ALIVE_LED_B  (0x10)
+#define ALIVE_LED_R  (0x40) /* Delayed-start red LED blinking */
+#define BK_EH2_230V  (0x20) /* Slow SSR signal BK Electrical Heater 2 */
+#define ALIVE_LED_B  (0x10) /* L0/L1 Alive-LED blue blinking */
 #define BUZZER       (0x08)
+#define BK_EH1_230V  (0x04) /* Slow SSR signal BK Electrical Heater 1 */
 
 //-----------------------------
 // PORTB of MCP23017 defines
@@ -77,6 +78,16 @@
 
 #define ON1ST        (true) /* Create PWM signal by starting with 1 signal */
 #define OFF1ST      (false) /* Create PWM signal by starting with 0 signal */
+
+//------------------------------------
+// Bit defines for elec_htrs variable
+//------------------------------------
+#define HTR_BK1     (0x01)
+#define HTR_BK2     (0x02)
+#define HTR_BK3     (0x04)
+#define HTR_HLT1    (0x08)
+#define HTR_HLT2    (0x10)
+#define HTR_HLT3    (0x20)
 
 typedef struct _pwmtime
 {
