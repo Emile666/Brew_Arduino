@@ -55,10 +55,10 @@ extern uint8_t    thlt_ow_err;         // 1 = error reading sensor
 extern int16_t    tmlt_ow_87;          // TMLT Temperature in °C * 128
 extern uint8_t    tmlt_ow_err;         // 1 = error reading sensor
 
-extern unsigned long flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
-extern unsigned long flow_mlt_boil;    // Count from flow-sensor between MLT and boil-kettle
-extern unsigned long flow_cfc_out;     // Count from flow-sensor at output of CFC
-extern unsigned long flow4;            // Count from FLOW4 (future use)
+extern uint32_t flow_hlt_mlt;     // Count from flow-sensor between HLT and MLT
+extern uint32_t flow_mlt_boil;    // Count from flow-sensor between MLT and boil-kettle
+extern uint32_t flow_cfc_out;     // Count from flow-sensor at output of CFC
+extern uint32_t flow4;            // Count from FLOW4 (future use)
 
 extern bool    bz_on;      // true = buzzer-on
 extern uint8_t bz_rpt_max; // number of buzzer repeats
@@ -67,8 +67,25 @@ extern bool     delayed_start_enable;  // true = delayed start is enabled
 extern uint16_t delayed_start_time;    // delayed start time in 2 sec. counts
 extern uint16_t delayed_start_timer1;  // timer to countdown until delayed start
 
+extern  task_struct task_list[];      // struct with all tasks
+extern  uint8_t     max_tasks;
+
 char    rs232_inbuf[USART_BUFLEN];     // buffer for RS232 commands
 uint8_t rs232_ptr = 0;                 // index in RS232 buffer
+
+/*-----------------------------------------------------------------------------
+  Purpose  : helper function to print to either RS232/USB or Ethernet/Udp
+  Variables: 
+  rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
+          s: the string to print
+ Returns  : -
+  ---------------------------------------------------------------------------*/
+void pr(bool rs232_udp, char *s)
+{
+    if (rs232_udp == RS232_USB) 
+         xputs(s);
+    else udp_write((uint8_t *)s,strlen(s));
+} // pr()
 
 /*-----------------------------------------------------------------------------
   Purpose  : Scan all devices on the I2C bus on all channels of the PCA9544
@@ -79,7 +96,7 @@ uint8_t rs232_ptr = 0;                 // index in RS232 buffer
   ---------------------------------------------------------------------------*/
 void i2c_scan(uint8_t ch, bool rs232_udp)
 {
-	char    s[30]; // needed for printing to serial terminal
+	char    s[50]; // needed for printing to serial terminal
 	uint8_t x = 0;
 	int     i;     // Leave this as an int!
 	const uint8_t none[] = "-";
@@ -87,14 +104,14 @@ void i2c_scan(uint8_t ch, bool rs232_udp)
 	if (i2c_select_channel(ch, HSPEED) == I2C_NACK)
 	{
 		sprintf(s,"Could not open I2C[%d]\n",ch);
-	    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
+		pr(rs232_udp, s);
 	} // if
 	else
 	{
 		if (ch == PCA9544_NOCH)
 		sprintf(s,"I2C[-]: ");
 		else sprintf(s,"I2C[%1d]: ",ch-PCA9544_CH0);
-	    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
+		pr(rs232_udp, s);
 		for (i = 0x00; i < 0xff; i+=2)
 		{
 			if (i2c_start(i) == I2C_ACK)
@@ -102,7 +119,7 @@ void i2c_scan(uint8_t ch, bool rs232_udp)
 				if ((ch == PCA9544_NOCH) || ((ch != PCA9544_NOCH) && (i != PCA9544)))
 				{
 					sprintf(s,"0x%0x ",i);
-		  		    rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
+					pr(rs232_udp, s);
 					x++;
 				} // if
 			} // if
@@ -110,9 +127,9 @@ void i2c_scan(uint8_t ch, bool rs232_udp)
 		} // for
 		if (!x) 
 		{
-		  	rs232_udp == RS232_USB ? xputs(none) : udp_write(none,strlen(none));
+		    pr(rs232_udp, none); // print to UART or ETH
 		} // if			
-	  	rs232_udp == RS232_USB ? xputs("\n") : udp_write("\n",1);
+		pr(rs232_udp, "\n");
 	} // else	
 } // i2c_scan()
 
@@ -176,9 +193,10 @@ uint8_t ethernet_command_handler(char *s)
 /*-----------------------------------------------------------------------------
   Purpose  : Finds a One-Wire device
   Variables: i2c_addr: I2C-address of DS2482 bridge
+             rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
   Returns  : -
   ---------------------------------------------------------------------------*/
-void find_OW_device(uint8_t i2c_addr)
+void find_OW_device(uint8_t i2c_addr, bool rs232_udp)
 {
     char    s2[40]; // Used for printing to RS232 port
 	uint8_t i,rval;
@@ -189,11 +207,12 @@ void find_OW_device(uint8_t i2c_addr)
 		for (i= 0; i < 8; i++)
 		{
 			sprintf(s2,"%02X ",ROM_NO[i]); // global array
-			xputs(s2);
-		} // for								 
+			pr(rs232_udp, s2); // print to UART or ETH
+		} // for	
+        pr(rs232_udp,"."); // conclude a MAC address
 	} // if
-	else xputs("-");
-	xputs("\n");							 
+	else pr(rs232_udp,"-"); 
+	pr(rs232_udp,"\n");
 } // find_OW_device()
 
 /*-----------------------------------------------------------------------------
@@ -269,12 +288,12 @@ void process_pwm_signal(uint8_t pwm_ch, uint8_t pwm_val, uint8_t enable)
 	else 
 	{ // Boil-kettle: support here for 2 electric heating elements
 		if (enable & ELEC_HTR1)
-		{   // HLT Electric heating-element 1
+		{   // BK Electric heating-element 1
 			bk_elec1_pwm = pwm_val; // set value for pwm_task() / pwm_2_time()
 		} 	// if
 		else bk_elec1_pwm = 0; // disable electric heater
 		if (enable & ELEC_HTR2)
-		{   // HLT Electric heating-element 2
+		{   // BK Electric heating-element 2
 			bk_elec2_pwm = pwm_val; // set value for pwm_task() / pwm_2_time()
 		} 	// if
 		else bk_elec2_pwm = 0; // disable electric heater
@@ -334,6 +353,32 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
 } // process_flows()
 
 /*-----------------------------------------------------------------------------
+  Purpose  : list all tasks and send result to the UART or ETH
+  Variables: rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
+ Returns  : -
+  ---------------------------------------------------------------------------*/
+void list_all_tasks(bool rs232_udp)
+{
+	uint8_t index = 0;
+	char    s[50];
+	//const char hdr[] = "Task-Name   T(ms) Stat T(ms) M(ms)\n";
+
+	//pr(rs232_udp,hdr);
+	//go through the active tasks
+	if(task_list[index].Period != 0)
+	{
+		while ((index < MAX_TASKS) && (task_list[index].Period != 0))
+		{
+			sprintf(s,"%s,%d,%x,%d,%d,\n", task_list[index].Name, 
+					  task_list[index].Period  , task_list[index].Status, 
+					  task_list[index].Duration, task_list[index].Duration_Max);
+			pr(rs232_udp,s); // print to USB or ETH
+			index++;
+		} // while
+	} // if
+} // list_all_tasks()
+
+/*-----------------------------------------------------------------------------
   Purpose: interpret commands which are received via the USB serial terminal:
    - A0           : Read Temperature sensors: THLT / TMLT / TBOIL / TCFC
    - A9           : Read flow sensors: HLT->MLT, MLT->BOIL, CFC-out, Flow4
@@ -353,10 +398,9 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
    - P0 / P1      : set Pump OFF / ON
    - R0           : Reset all flows
    - S0           : Ebrew hardware revision number (also disables delayed-start)
-	 S1			  : List value of parameters that can be set with Nx command
-	 S2           : List all connected I2C devices  
-	 S3           : List all tasks
-	 S4           : List One-Wire devices
+	 S1           : List all connected I2C devices  
+	 S2           : List all tasks
+	 S3           : List One-Wire devices
    - V0...V255    : Output bits for valves V1 until V8
    - X0...X8      : Sound buzzer x times
  
@@ -368,7 +412,7 @@ void process_flows(uint32_t flow_val, char *name, uint8_t last)
 uint8_t execute_single_command(char *s, bool rs232_udp)
 {
    uint8_t  num  = atoi(&s[1]); // convert number in command (until space is found)
-   uint8_t  rval = NO_ERR, err, portb;
+   uint8_t  rval = NO_ERR, portb;
    uint16_t temp;
    char     s2[40]; // Used for printing to RS232 port
    
@@ -403,7 +447,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 } // switch
 				 if (rval != ERR_NUM)
 				 {		 
-					rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+					pr(rs232_udp, s2); // print to UART or ETH
 				 } // if
 				 if (rs232_udp == ETHERNET_UDP)
 				 {
@@ -429,7 +473,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 						   udp_beginPacketIP(remoteIP, EBREW_PORT_NR); // send response back
 					   } // if
 					   sprintf(s2,"delayed-start:[%d]%d/%d min.\n",delayed_start_enable,delayed_start_timer1/30,delayed_start_time/30);
-					   rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+			   		   pr(rs232_udp, s2); // print to UART or ETH
 					   if (rs232_udp == ETHERNET_UDP)
 					   {
 						   udp_endPacket(); // send response
@@ -481,7 +525,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				     sprintf(s2,"ETH mode (E1): %d.%d.%d.%d\n",local_ip[0],local_ip[1],local_ip[2],local_ip[3]);
 				 } // if
 				 else sprintf(s2,"USB mode (E0)\n");
-				 rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+		 		 pr(rs232_udp, s2);  // print to UART or ETH
 				 if (rs232_udp == ETHERNET_UDP)
 				 {
 					 udp_endPacket(); // send response
@@ -537,7 +581,7 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 				 {
 					 case 0: // Ebrew revision
 							 print_ebrew_revision(s2); // print CVS revision number
-				             rs232_udp == RS232_USB ? xputs(s2) : udp_write((uint8_t *)s2,strlen(s2));
+					 		 pr(rs232_udp, s2); // print to UART or ETH
 							 delayed_start_enable = false;  // disable delayed-start when PC program is powering-up
 							 break;
 					 case 1: // List all I2C devices
@@ -551,10 +595,10 @@ uint8_t execute_single_command(char *s, bool rs232_udp)
 							 list_all_tasks(rs232_udp); 
 							 break;	
 					 case 3: // List all One-Wire Devices (finding a sensor costs approx. 350 msec.)
-							 find_OW_device(DS2482_THLT_BASE);  // Find ROM ID of HLT  DS18B20
-							 find_OW_device(DS2482_TBOIL_BASE); // Find ROM ID of BOIL DS18B20
-							 find_OW_device(DS2482_TCFC_BASE);  // Find ROM ID of CFC  DS18B20
-							 find_OW_device(DS2482_TMLT_BASE);  // Find ROM ID of MLT  DS18B20
+							 find_OW_device(DS2482_THLT_BASE , rs232_udp); // Find ROM ID of HLT  DS18B20
+							 find_OW_device(DS2482_TBOIL_BASE, rs232_udp); // Find ROM ID of BOIL DS18B20
+							 find_OW_device(DS2482_TCFC_BASE , rs232_udp); // Find ROM ID of CFC  DS18B20
+							 find_OW_device(DS2482_TMLT_BASE , rs232_udp); // Find ROM ID of MLT  DS18B20
 							 break;
 					 default: rval = ERR_NUM;
 							  break;

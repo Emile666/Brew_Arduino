@@ -2,49 +2,13 @@
   File Name    : scheduler.c
   Function name: scheduler_isr(), dispatch_tasks(), add_task(),
                  enable_task()  , disable_task()  , set_task_time_period(),
-				 list_all_tasks()
-  File name    : $Id$
-  Author       : E. van de Logt
+  Author       : Emile
   ------------------------------------------------------------------
   Purpose : This files contains all the functions for adding and
             executing tasks in a cooperative (non pre-emptive) way.
   ------------------------------------------------------------------
-  $Log$
-  Revision 1.6  2015/07/01 21:03:46  Emile
-  - Bug-fix in scheduler time-measurement. Now reads proper time in msec
-  - Usart comm. now IRQ driven, so that all receiving commands are handled
-  - DS18B20 reads only 2 bytes (instead of 9). Total time taken is now 28 msec.
-    This was 60 msec. and caused multiple reads at PC side.
 
-  Revision 1.5  2014/05/03 11:27:44  Emile
-  - Ethernet support added for W550io module
-  - No response for L, N, P, W commands anymore
-  - All source files now have headers
-
-  Revision 1.4  2013/07/24 13:46:40  Emile
-  - Minor changes in S1, S2 and S3 commands to minimize comm. overhead.
-  - Version ready for Integration Testing with PC program!
-
-  Revision 1.3  2013/07/21 13:10:44  Emile
-  - Reading & Writing of 17 parameters now fully works with set_parameter()
-  - VHLT and VMLT tasks added
-  - Scheduler: actual & max. times now printed in msec. instead of usec.
-  - THLT and TMLT now in E-2 Celsius for PC program
-  - All lm92 test routines removed, only one lm92_read() remaining
-
-  Revision 1.2  2013/07/20 14:52:00  Emile
-  - LM35, THLT and TMLT tasks are now working
-  - Max. duration added to scheduler
-  - slope_limiter & lm92_read() now work with uint16_t instead of float
-
-  Revision 1.1  2013/07/19 10:51:02  Emile
-  - I2C frequency 50 50 kHz to get 2nd LM92 working
-  - Command Mx removed, command N0 x added, commands N0..N3 renamed to N1..N4
-  - Command S3 added, list_all_tasks. To-Do: get timing-measurement working
-  - Scheduler added with 3 tasks: lm35, led_blink and pwm_2_time
-
-  ==================================================================
-*/ 
+  ==================================================================*/ 
 #include "scheduler.h"
 
 task_struct task_list[MAX_TASKS]; // struct with all tasks
@@ -253,31 +217,3 @@ uint8_t set_task_time_period(uint16_t Period, char *Name)
 	     return ERR_NAME;
 	else return NO_ERR;	
 } // set_task_time_period()
-
-/*-----------------------------------------------------------------------------
-  Purpose  : list all tasks and send result to USB-RS232 using xputs().
-  Variables: 
-  rs232_udp: [RS232_USB, ETHERNET_UDP] Response via RS232/USB or Ethernet/Udp
- Returns  : -
-  ---------------------------------------------------------------------------*/
-void list_all_tasks(bool rs232_udp)
-{
-	uint8_t index = 0;
-	char    s[50];
-	//const char hdr[] = "Task-Name   T(ms) Stat T(ms) M(ms)\n";
-
-	//rs232_udp == RS232_USB ? xputs(hdr) : udp_write((uint8_t *)hdr,strlen(hdr));
-	//go through the active tasks
-	if(task_list[index].Period != 0)
-	{
-		while (task_list[index].Period != 0)
-		{
-			//sprintf(s,"%-11s %5d 0x%02x   %03d   %03d\n", task_list[index].Name,
-			sprintf(s,"%s,%d,%x,%d,%d\n", task_list[index].Name, 
-					  task_list[index].Period  , task_list[index].Status, 
-					  task_list[index].Duration, task_list[index].Duration_Max);
-			rs232_udp == RS232_USB ? xputs(s) : udp_write((uint8_t *)s,strlen(s));
-			index++;
-		} // while
-	} // if
-} // list_all_tasks()

@@ -3,6 +3,13 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.46 2023/04/12
+// - pr() function added
+// - S3 and S4 commands updated to match STM8S207 version
+//
+// Revision 1.45 2023/03/09
+// Support for 2x Electric heating for boil-kettle added.
+//
 // Revision 1.44  2023/02/12 Emile
 // - Order of MA-filters reduced to 4, filters were too slow
 //
@@ -205,7 +212,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.45 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.46 $"; // ebrew CVS revision number
 bool         ethernet_WIZ550i = false;		         // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
@@ -286,11 +293,11 @@ int16_t  tboil_old_87;              // Previous value of tboil_temp_87
 int16_t  tboil_temp_87;             // TBOIL Temperature in °C * 128
 uint8_t  tboil_err = 0;             // 1 = Read error from DS18B20
 
-unsigned long    t2_millis     = 0UL;
-unsigned long    flow_hlt_mlt  = 0UL;
-unsigned long    flow_mlt_boil = 0UL;
-unsigned long    flow_cfc_out  = 0UL; // Count from flow-sensor at output of CFC
-unsigned long    flow4         = 0UL; // Count from FLOW4 (future use)
+uint32_t t2_millis     = 0UL;
+uint32_t flow_hlt_mlt  = 0UL;
+uint32_t flow_mlt_boil = 0UL;
+uint32_t flow_cfc_out  = 0UL; // Count from flow-sensor at output of CFC
+uint32_t flow4         = 0UL; // Count from FLOW4 (future use)
 volatile uint8_t old_flows     = 0x0F; // default is high because of the pull-up
 
 //------------------------------------------------
@@ -1056,12 +1063,17 @@ int main(void)
 	thlt_ow_87    = INIT_TEMP << 7;
 	tmlt_ow_87    = INIT_TEMP << 7;
 	
+    //---------------------------------------------
+    // Initialize Electric Heating Elements
+    //---------------------------------------------
 	init_pwm_time(&pwmhlt1,HTR_HLT1,ON1ST);  // HLT Electric heating element 1
 	init_pwm_time(&pwmhlt2,HTR_HLT2,OFF1ST); // HLT Electric heating element 2
 	init_pwm_time(&pwmbk1 ,HTR_BK1 ,OFF1ST); // BK  Electric heating element 1
 	init_pwm_time(&pwmbk2 ,HTR_BK2 ,ON1ST);  // BK  Electric heating element 2
 
-	// Initialize all the tasks for the E-Brew system
+    //---------------------------------------------
+    // Initialize all tasks for the Brew Hardware
+    //---------------------------------------------
 	add_task(pwm_task  ,"pwm_task"  , 10,   50); // Electrical Heating Time-Division every 50 msec.
 	add_task(owh_task  ,"owh_task"  ,120, 1000); // Process Temperature from DS18B20 HLT sensor
 	add_task(owm_task  ,"owm_task"  ,220, 1000); // Process Temperature from DS18B20 MLT sensor
@@ -1096,8 +1108,8 @@ int main(void)
 	    dispatch_tasks(); // run the task-scheduler
 		switch (rs232_command_handler()) // run command handler continuously
 		{
-			case ERR_CMD: xputs("Cmd Error\n"); break;
-			case ERR_NUM: xputs("Num Error\n");  break;
+			case ERR_CMD: xputs("Cmd Err\n"); break;
+			case ERR_NUM: xputs("Num Err\n");  break;
 			default     : break;
 		} // switch
 		if (ethernet_WIZ550i) // only true after an E1 command
