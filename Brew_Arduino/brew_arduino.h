@@ -124,7 +124,7 @@ typedef struct _pwmtime
 #define DEL_START_BURN   (2)
 #define DEL_START_MAX_DELAY_TIME (54000) /* Max. time is 30 hours * 60 minutes * 30 * 2 seconds */
 #define DEL_START_MAX_BURN_TIME   (3600) /* Max. time is 120 minutes * 30 * 2 seconds */
-#define DEL_START_ELEC_PWM          (40) /* PWM signal for HLT electric heaters during delayed start */
+#define DEL_START_ELEC_PWM         (100) /* PWM signal for HLT electric heaters during delayed start */
 
 //-----------------------------
 // pwm_2_time() States

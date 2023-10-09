@@ -3,6 +3,9 @@
 // Author : Emile
 // File   : Brew_Arduino.c
 //-----------------------------------------------------------------------------
+// Revision 1.47 2023/10/09
+// - DEL_START_ELEC_PWM from 40% to 100%
+//
 // Revision 1.46 2023/04/12
 // - pr() function added
 // - S3 and S4 commands updated to match STM8S207 version
@@ -212,7 +215,7 @@ extern char rs232_inbuf[];
 // Global variables
 uint8_t      local_ip[4]      = {0,0,0,0}; // local IP address, gets a value from init_WIZ550IO_module() -> dhcp_begin()
 unsigned int local_port;                   // local port number read back from wiz550i module
-const char  *ebrew_revision   = "$Revision: 1.46 $"; // ebrew CVS revision number
+const char  *ebrew_revision   = "$Revision: 1.47 $"; // ebrew CVS revision number
 bool         ethernet_WIZ550i = false;		         // Default to No WIZ550i present
 
 // The following variables are defined in Udp.c
